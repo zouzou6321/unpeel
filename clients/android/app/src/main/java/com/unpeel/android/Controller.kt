@@ -804,6 +804,7 @@ class Controller(context: Context) {
         pollJob?.cancel()
         outputJob?.cancel()
         link = null
+        connection = "正在连接"
         pollJob = scope.launch {
             while (true) {
                 refreshOnce()

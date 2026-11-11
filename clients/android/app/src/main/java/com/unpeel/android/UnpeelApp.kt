@@ -28,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -308,6 +309,7 @@ private fun TerminalHome(
                 )
             }
         }
+        LinkNotice(controller.connection)
     }
     val drawerMostlyOpen = drawerOpen || drawerPosition > 80f
     val approval = session?.let { current ->
@@ -806,6 +808,39 @@ private fun SessionDrawer(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
         )
     }
+}
+
+/** A quiet top line. Connecting to LAN or the public address shows it, and so does a switch, because that is another connection. It leaves on its own. */
+@Composable
+private fun BoxScope.LinkNotice(connection: String) {
+    val text = when (connection) {
+        "局域网" -> "已连接局域网"
+        "公网" -> "已连接公网"
+        else -> null
+    }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(text) {
+        if (text == null) {
+            visible = false
+            return@LaunchedEffect
+        }
+        visible = true
+        delay(5_000)
+        visible = false
+    }
+    if (!visible || text == null) return
+    Text(
+        text,
+        color = Color.White.copy(alpha = 0.92f),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = 10.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xCC1C1C1A))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
