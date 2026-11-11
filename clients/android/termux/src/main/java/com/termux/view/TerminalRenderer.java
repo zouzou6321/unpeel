@@ -4,6 +4,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
+import android.util.SparseIntArray;
 
 import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalEmulator;
@@ -21,6 +22,10 @@ public final class TerminalRenderer {
     final int mTextSize;
     final Typeface mTypeface;
     private final Paint mTextPaint = new Paint();
+    /** Symbols the monospace font lacks (Claude's ⏵) come from the system fallback. */
+    private final Paint mFallbackPaint = new Paint();
+    /** 0 unknown, 1 present in the mono font, 2 missing. */
+    private final SparseIntArray glyphCache = new SparseIntArray(64);
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
     final float mFontWidth;
@@ -44,14 +49,18 @@ public final class TerminalRenderer {
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
         mFontLineSpacingAndAscent = mFontLineSpacing + mFontAscent;
-        // System monospace is about 0.6em wide. A terminal cell is half a
-        // line tall. Narrow the glyphs; the line height stays the font's own.
+        // System monospace is about 0.6em. A cell half an em tall keeps the
+        // line height and narrows the glyphs. CJK is not stretched to fill
+        // two cells; that stretch is what made Chinese look fat.
         float naturalWidth = mTextPaint.measureText("X");
-        float targetWidth = mFontLineSpacing * 0.5f;
+        float targetWidth = textSize * 0.5f;
         if (naturalWidth > targetWidth && targetWidth > 0f) {
             mTextPaint.setTextScaleX(targetWidth / naturalWidth);
         }
         mFontWidth = mTextPaint.measureText("X");
+        mFallbackPaint.set(mTextPaint);
+        mFallbackPaint.setTypeface(Typeface.DEFAULT);
+        mFallbackPaint.setTextScaleX(1f);
 
         StringBuilder sb = new StringBuilder(" ");
         for (int i = 0; i < asciiMeasures.length; i++) {
@@ -97,6 +106,7 @@ public final class TerminalRenderer {
             int lastRunStartColumn = -1;
             int lastRunStartIndex = 0;
             boolean lastRunFontWidthMismatch = false;
+            boolean lastRunMissingGlyph = false;
             int currentCharIndex = 0;
             float measuredWidthForRun = 0.f;
 
@@ -114,11 +124,15 @@ public final class TerminalRenderer {
                 // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
                 // smileys which android font renders as wide.
                 // If this is detected, we draw this code point scaled to match what wcwidth() expects.
-                final float measuredCodePointWidth = (codePoint < asciiMeasures.length) ? asciiMeasures[codePoint] : mTextPaint.measureText(line,
-                    currentCharIndex, charsForCodePoint);
-                final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
+                final boolean missingGlyph = codePoint > 127 && !monoHasGlyph(line, currentCharIndex, charsForCodePoint, codePoint);
+                final float measuredCodePointWidth = missingGlyph
+                    ? mFallbackPaint.measureText(line, currentCharIndex, charsForCodePoint)
+                    : (codePoint < asciiMeasures.length) ? asciiMeasures[codePoint] : mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
+                // Only a glyph wider than its cells is scaled, and only down.
+                // Scaling a narrower CJK fallback up to two cells is the fat look.
+                final boolean fontWidthMismatch = missingGlyph || measuredCodePointWidth > mFontWidth * codePointWcWidth + 0.5f;
 
-                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
+                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch || missingGlyph != lastRunMissingGlyph) {
                     if (column == 0) {
                         // Skip first column as there is nothing to draw, just record the current style.
                     } else {
@@ -131,7 +145,8 @@ public final class TerminalRenderer {
                         }
                         drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun,
                             lastRunStartIndex, charsSinceLastRun, measuredWidthForRun,
-                            cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection);
+                            cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection,
+                            lastRunMissingGlyph);
                     }
                     measuredWidthForRun = 0.f;
                     lastRunStyle = style;
@@ -140,6 +155,7 @@ public final class TerminalRenderer {
                     lastRunStartColumn = column;
                     lastRunStartIndex = currentCharIndex;
                     lastRunFontWidthMismatch = fontWidthMismatch;
+                    lastRunMissingGlyph = missingGlyph;
                 }
                 measuredWidthForRun += measuredCodePointWidth;
                 column += codePointWcWidth;
@@ -159,13 +175,22 @@ public final class TerminalRenderer {
                 invertCursorTextColor = true;
             }
             drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
-                measuredWidthForRun, cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection);
+                measuredWidthForRun, cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection,
+                lastRunMissingGlyph);
         }
+    }
+
+    private boolean monoHasGlyph(char[] line, int index, int count, int codePoint) {
+        int cached = glyphCache.get(codePoint, 0);
+        if (cached != 0) return cached == 1;
+        boolean has = mTextPaint.hasGlyph(new String(line, index, count));
+        glyphCache.put(codePoint, has ? 1 : 2);
+        return has;
     }
 
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
-                             long textStyle, boolean reverseVideo) {
+                             long textStyle, boolean reverseVideo, boolean missingGlyph) {
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
@@ -198,7 +223,9 @@ public final class TerminalRenderer {
 
         mes = mes / mFontWidth;
         boolean savedMatrix = false;
-        if (Math.abs(mes - runWidthColumns) > 0.01) {
+        // Missing symbols are fitted to the cell. A wider run is only scaled
+        // down, so a narrower CJK glyph is not stretched.
+        if (mes > 0.01f && (missingGlyph || mes > runWidthColumns + 0.01f)) {
             canvas.save();
             canvas.scale(runWidthColumns / mes, 1.f);
             left *= mes / runWidthColumns;
@@ -240,7 +267,16 @@ public final class TerminalRenderer {
             mTextPaint.setColor(foreColor);
 
             // The text alignment is the default Paint.Align.LEFT.
-            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
+            Paint paint = mTextPaint;
+            if (missingGlyph) {
+                mFallbackPaint.setColor(foreColor);
+                mFallbackPaint.setFakeBoldText(bold);
+                mFallbackPaint.setUnderlineText(underline);
+                mFallbackPaint.setTextSkewX(italic ? -0.35f : 0.f);
+                mFallbackPaint.setStrikeThruText(strikeThrough);
+                paint = mFallbackPaint;
+            }
+            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, paint);
         }
 
         if (savedMatrix) canvas.restore();

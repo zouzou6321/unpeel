@@ -124,8 +124,6 @@ class HostTerminal(
         this.live = live
         emulator.append(bytes, bytes.size)
         sawOutput = true
-        // A replay is sliced so the main thread can draw between pieces.
-        // Only the last piece of a chunk paints, so a half-parsed frame stays off screen.
         if (notify) onFrame?.invoke()
     }
 

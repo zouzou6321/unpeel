@@ -78,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
@@ -509,8 +510,8 @@ private fun TerminalSurface(
                 TerminalKey("▼") { sendTerminalKey(controller, "arrowDown", ctrlArmed); ctrlArmed = false }
                 TerminalKey("▶") { sendTerminalKey(controller, "arrowRight", ctrlArmed); ctrlArmed = false }
                 TerminalKey("esc", 11) { sendTerminalKey(controller, "escape", ctrlArmed); ctrlArmed = false }
-                TerminalKey("⇥") { sendTerminalKey(controller, "tab", ctrlArmed); ctrlArmed = false }
-                TerminalKey("⌃", armed = ctrlArmed) { ctrlArmed = !ctrlArmed }
+                TerminalKey("Tab", 12) { sendTerminalKey(controller, "tab", ctrlArmed); ctrlArmed = false }
+                TerminalKey("Ctrl", 12, armed = ctrlArmed) { ctrlArmed = !ctrlArmed }
             }
         }
         }
@@ -556,6 +557,9 @@ private fun ColumnScope.TerminalGrid(
     Box(
         Modifier
             .weight(1f)
+            // The embedded Android view draws above Compose. Without this clip it
+            // covers the title row and that band is just the terminal color.
+            .clipToBounds()
             .background(Color(canvas)),
     ) {
         AndroidView(
@@ -1463,12 +1467,15 @@ private fun sendTerminalKey(controller: Controller, name: String, ctrl: Boolean)
 
 @Composable
 private fun TerminalKey(label: String, textSize: Int = 14, armed: Boolean = false, onClick: () -> Unit) {
+    val shape = if (label.length <= 1) CircleShape else RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .size(36.dp)
-            .clip(CircleShape)
+            .height(36.dp)
+            .widthIn(min = 36.dp)
+            .clip(shape)
             .background(if (armed) Color(0xFF32ADE6) else Color.White.copy(alpha = 0.10f))
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = if (label.length > 1) 10.dp else 0.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(

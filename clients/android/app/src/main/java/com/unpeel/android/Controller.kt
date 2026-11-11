@@ -29,7 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -51,7 +50,6 @@ data class SavedHost(
     val serverVersion: String?,
 )
 
-private const val FEED_SLICE_BYTES = 64 * 1024
 private const val SESSION_CACHE_LIMIT = 3
 
 class Controller(context: Context) {
@@ -867,21 +865,13 @@ class Controller(context: Context) {
     }
 
     /**
-     * Feeds one chunk in pieces the size of the iOS slice. Yielding between
-     * pieces lets a touch and the next wheel report run. The frame is
-     * invalidated only on the last piece, so a sliced redraw is not shown torn.
+     * Feeds one chunk in a single append. A Grok redraw is one cursor-addressed
+     * frame; yielding between slices lets a phone-fit resize land in the middle
+     * of it, and the rest of the frame paints on the reflowed screen.
      */
-    private suspend fun feedBytes(bytes: ByteArray, live: Boolean, notify: Boolean, generation: Int): Boolean {
-        if (bytes.isEmpty()) return generation == outputGeneration
-        var index = 0
-        while (index < bytes.size) {
-            if (generation != outputGeneration) return false
-            val end = minOf(index + FEED_SLICE_BYTES, bytes.size)
-            val last = end == bytes.size
-            terminal.feed(bytes.copyOfRange(index, end), live = live, notify = notify && last)
-            index = end
-            if (!last) yield()
-        }
+    private fun feedBytes(bytes: ByteArray, live: Boolean, notify: Boolean, generation: Int): Boolean {
+        if (generation != outputGeneration) return false
+        if (bytes.isNotEmpty()) terminal.feed(bytes, live = live, notify = notify)
         return generation == outputGeneration
     }
 
