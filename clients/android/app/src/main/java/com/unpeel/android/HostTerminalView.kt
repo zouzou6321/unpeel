@@ -475,10 +475,10 @@ class HostTerminalView(
     /** iOS `wheelForwarding`. The view stays put for anything other than local scrollback. */
     private fun forwarding(emulator: TerminalEmulator): AgentTerminalPolicy.Wheel {
         return AgentTerminalPolicy.wheelForwarding(
-            modesKnown = terminal.sawOutput,
+            modesKnown = terminal.hostModeSnapshot,
             mouseTracking = emulator.isMouseTrackingActive(),
             alternateScreen = emulator.isAlternateBufferActive(),
-            sawMouseOrAlternateDisable = false,
+            sawMouseOrAlternateDisable = terminal.sawMouseOrAlternateDisable,
             prefersRemoteMouseWheel = prefersRemoteWheel,
         )
     }

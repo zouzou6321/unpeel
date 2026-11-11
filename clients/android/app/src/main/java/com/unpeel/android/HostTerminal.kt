@@ -7,6 +7,7 @@ import com.termux.terminal.TerminalOutput
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.terminal.TextStyle
+import com.unpeel.controller.TerminalModeSignals
 
 /**
  * Remote-only Termux emulator. Bytes come from the Host journal.
@@ -31,9 +32,14 @@ class HostTerminal(
     private var cellHeight = 16
     private var appliedCanvas = CANVAS
 
-    /** True after this screen has accepted output, so its modes are authoritative. */
-    var sawOutput: Boolean = false
-        private set
+    private val modes = TerminalModeSignals()
+    private var frameSuppressed = false
+
+    /** True after a host mode preamble was fed. Output alone is not a snapshot. */
+    val hostModeSnapshot: Boolean get() = modes.hostModeSnapshot
+
+    /** The fed bytes turned mouse tracking or the alternate screen off, or reset the terminal. */
+    val sawMouseOrAlternateDisable: Boolean get() = modes.sawMouseOrAlternateDisable
 
     /** Scrollback rows the view had parked when another session took the screen. */
     var parkedScroll: Int = 0
@@ -55,7 +61,9 @@ class HostTerminal(
         override fun onBell() {}
 
         override fun onColorsChanged() {
-            onFrame?.invoke()
+            // A replay feeds a whole tail before anyone should see it. Color
+            // reports in the middle of that tail are half-drawn frames.
+            if (!frameSuppressed) onFrame?.invoke()
         }
     }
 
@@ -90,7 +98,7 @@ class HostTerminal(
     /** Drop the screen and start a new grid. Does not talk to the Host. */
     fun prepare(columns: Int, rows: Int) {
         live = false
-        sawOutput = false
+        modes.reset()
         emulator = create(columns.coerceIn(2, 300), rows.coerceIn(2, 120))
         onFrame?.invoke()
     }
@@ -119,11 +127,17 @@ class HostTerminal(
         onFrame?.invoke()
     }
 
-    fun feed(bytes: ByteArray, live: Boolean, notify: Boolean = true) {
+    fun feed(bytes: ByteArray, live: Boolean, notify: Boolean = true, hostSnapshot: Boolean = false) {
         if (bytes.isEmpty()) return
+        if (hostSnapshot) modes.markHostSnapshot()
+        modes.feed(bytes)
         this.live = live
-        emulator.append(bytes, bytes.size)
-        sawOutput = true
+        frameSuppressed = true
+        try {
+            emulator.append(bytes, bytes.size)
+        } finally {
+            frameSuppressed = false
+        }
         if (notify) onFrame?.invoke()
     }
 

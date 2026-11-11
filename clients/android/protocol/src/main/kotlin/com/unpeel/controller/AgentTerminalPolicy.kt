@@ -2,9 +2,10 @@ package com.unpeel.controller
 
 /**
  * Phone terminal behavior copied from iOS `RemoteGhosttyRenderer`.
- * Wheel forwarding follows the Host's modes once they are known. The named
- * agents are only a guess before that. Menu detection matches the phone scan,
- * including the requirement that numbered choices are on screen.
+ * Wheel forwarding follows the Host's modes once a mode snapshot has arrived.
+ * The named agents stay a guess until that snapshot, or until the stream
+ * turns mouse tracking or the alternate screen off. Menu detection matches
+ * the phone scan, including the requirement that numbered choices are on screen.
  */
 object AgentTerminalPolicy {
     enum class Wheel {

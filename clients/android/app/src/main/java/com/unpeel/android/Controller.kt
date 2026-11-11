@@ -869,9 +869,17 @@ class Controller(context: Context) {
      * frame; yielding between slices lets a phone-fit resize land in the middle
      * of it, and the rest of the frame paints on the reflowed screen.
      */
-    private fun feedBytes(bytes: ByteArray, live: Boolean, notify: Boolean, generation: Int): Boolean {
+    private fun feedBytes(
+        bytes: ByteArray,
+        live: Boolean,
+        notify: Boolean,
+        generation: Int,
+        hostSnapshot: Boolean = false,
+    ): Boolean {
         if (generation != outputGeneration) return false
-        if (bytes.isNotEmpty()) terminal.feed(bytes, live = live, notify = notify)
+        if (bytes.isNotEmpty()) {
+            terminal.feed(bytes, live = live, notify = notify, hostSnapshot = hostSnapshot)
+        }
         return generation == outputGeneration
     }
 
@@ -955,7 +963,14 @@ class Controller(context: Context) {
                     if (generation != outputGeneration) return@launch
                     val preamble = if (replay) chunk.modePreamble else null
                     slot?.coherent = false
-                    if (preamble != null && !feedBytes(preamble, live = false, notify = visible.isEmpty(), generation)) {
+                    if (preamble != null && !feedBytes(
+                            preamble,
+                            live = false,
+                            notify = visible.isEmpty(),
+                            generation = generation,
+                            hostSnapshot = true,
+                        )
+                    ) {
                         return@launch
                     }
                     if (!feedBytes(visible, live = !replay, notify = true, generation)) return@launch
