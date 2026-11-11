@@ -581,6 +581,7 @@ private fun ColumnScope.TerminalGrid(
                     if (active && !menuActive) view.dismissKeyboard()
                     menuActive = active
                 }
+                view.relayed = controller.usingRelay
                 view.prefersRemoteWheel = AgentTerminalPolicy.prefersRemoteMouseWheel(
                     openSession?.providerID,
                     openSession?.command.orEmpty(),

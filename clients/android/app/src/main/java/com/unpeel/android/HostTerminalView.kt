@@ -21,6 +21,7 @@ import com.termux.view.TerminalMetrics
 import com.termux.view.TerminalRenderer
 import com.unpeel.controller.AgentTerminalPolicy
 import com.unpeel.controller.TerminalInput
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -43,6 +44,8 @@ class HostTerminalView(
     var onMenuChanged: ((Boolean) -> Unit)? = null
     /** Claude, Grok, or OpenCode, for the wheel guess before modes arrive. */
     var prefersRemoteWheel: Boolean = false
+    /** Link relay. iOS shortens the release glide on that path. */
+    var relayed: Boolean = false
     var canvasColor: Int = CANVAS
         set(value) {
             if (field == value) return
@@ -65,6 +68,37 @@ class HostTerminalView(
     private var scrollRemainder = 0f
     /** Wheel travel for a full-screen program. Never moves the canvas. */
     private var wheelRemainder = 0f
+    /** iOS `startWheelMomentum`: steps per second after the finger lifts. */
+    private var glideRate = 0f
+    private var glideCarry = 0f
+    private var glideX = 0f
+    private var glideY = 0f
+    private val glideTick = object : Runnable {
+        override fun run() {
+            val emulator = terminal.emulator
+            val mode = forwarding(emulator)
+            if (glideRate == 0f ||
+                (mode != AgentTerminalPolicy.Wheel.Mouse && mode != AgentTerminalPolicy.Wheel.AlternateScroll)
+            ) {
+                stopGlide()
+                return
+            }
+            glideCarry += glideRate * GLIDE_TICK_SECONDS
+            val steps = abs(glideCarry).toInt()
+            if (steps > 0) {
+                val sign = if (glideCarry < 0f) -1 else 1
+                glideCarry -= steps * sign
+                val burst = min(steps, if (relayed) GLIDE_BURST_RELAY else WHEEL_BURST_CAP)
+                dispatchRemoteWheel(emulator, mode, glideX, glideY, glideRate > 0f, burst)
+            }
+            glideRate *= if (relayed) GLIDE_FRICTION_RELAY else GLIDE_FRICTION_LAN
+            if (abs(glideRate) <= GLIDE_STOP_STEPS_PER_SECOND) {
+                stopGlide()
+                return
+            }
+            postDelayed(this, GLIDE_TICK_MS)
+        }
+    }
     private var flingVelocity = 0f
     private var selecting = false
     private var selX1 = -1
@@ -110,6 +144,8 @@ class HostTerminalView(
         override fun onDown(e: MotionEvent): Boolean {
             flingVelocity = 0f
             removeCallbacks(flingTick)
+            stopGlide()
+            wheelRemainder = 0f
             return true
         }
 
@@ -169,14 +205,7 @@ class HostTerminalView(
             // velocityY is downward. A positive line count reveals newer rows.
             when (forwarding(emulator)) {
                 AgentTerminalPolicy.Wheel.Mouse, AgentTerminalPolicy.Wheel.AlternateScroll -> {
-                    val lines = (-velocityY / cellHeight / 6f).toInt()
-                    if (lines == 0) return false
-                    val steps = min(kotlin.math.abs(lines), 8)
-                    if (forwarding(emulator) == AgentTerminalPolicy.Wheel.Mouse) {
-                        sendWheel(emulator, e2, lines > 0, steps)
-                    } else {
-                        sendAlternateScroll(lines > 0, steps)
-                    }
+                    startGlide(-velocityY / cellHeight, e2.x, e2.y)
                 }
                 AgentTerminalPolicy.Wheel.None -> {
                     flingVelocity = -velocityY
@@ -358,6 +387,7 @@ class HostTerminalView(
     override fun onDetachedFromWindow() {
         removeCallbacks(blink)
         removeCallbacks(flingTick)
+        stopGlide()
         if (terminal.onFrame === frameListener) terminal.onFrame = null
         super.onDetachedFromWindow()
     }
@@ -422,6 +452,7 @@ class HostTerminalView(
         panX = 0
         scrollRemainder = 0f
         wheelRemainder = 0f
+        stopGlide()
         flingVelocity = 0f
         if (selecting) clearSelection()
         if (menuActive) {
@@ -461,15 +492,49 @@ class HostTerminalView(
         wheelRemainder += distanceY
         val lines = (wheelRemainder / cellHeight).toInt()
         if (lines == 0) return true
-        val steps = min(kotlin.math.abs(lines), 24)
+        val steps = min(abs(lines), WHEEL_BURST_CAP)
         val applied = if (lines > 0) steps else -steps
         wheelRemainder -= applied * cellHeight
+        dispatchRemoteWheel(emulator, mode, event.x, event.y, applied > 0, steps)
+        return true
+    }
+
+    /**
+     * iOS `startWheelMomentum`. A slow lift is a placed drag and sends nothing
+     * more. A flick decays into wheel bursts until friction wins. The picture
+     * stays put; Claude still repaints each burst.
+     */
+    private fun startGlide(stepsPerSecond: Float, x: Float, y: Float) {
+        if (abs(stepsPerSecond) <= GLIDE_START_STEPS_PER_SECOND) return
+        val cap = if (relayed) GLIDE_CAP_RELAY else GLIDE_CAP_LAN
+        glideRate = stepsPerSecond.coerceIn(-cap, cap)
+        glideCarry = 0f
+        glideX = x
+        glideY = y
+        removeCallbacks(glideTick)
+        post(glideTick)
+    }
+
+    private fun stopGlide() {
+        glideRate = 0f
+        glideCarry = 0f
+        removeCallbacks(glideTick)
+    }
+
+    private fun dispatchRemoteWheel(
+        emulator: TerminalEmulator,
+        mode: AgentTerminalPolicy.Wheel,
+        x: Float,
+        y: Float,
+        towardBottom: Boolean,
+        steps: Int,
+    ) {
+        if (steps <= 0) return
         when (mode) {
-            AgentTerminalPolicy.Wheel.Mouse -> sendWheel(emulator, event, applied > 0, steps)
-            AgentTerminalPolicy.Wheel.AlternateScroll -> sendAlternateScroll(applied > 0, steps)
+            AgentTerminalPolicy.Wheel.Mouse -> sendWheel(emulator, x, y, towardBottom, steps)
+            AgentTerminalPolicy.Wheel.AlternateScroll -> sendAlternateScroll(towardBottom, steps)
             AgentTerminalPolicy.Wheel.None -> Unit
         }
-        return true
     }
 
     /** Cursor up/down for a full-screen program that does not track the mouse. */
@@ -553,8 +618,8 @@ class HostTerminalView(
         return kotlin.math.abs(cell.second - emulator.cursorRow) <= 1
     }
 
-    private fun sendWheel(emulator: TerminalEmulator, event: MotionEvent, towardBottom: Boolean, steps: Int) {
-        val cell = cellAt(event.x, event.y)
+    private fun sendWheel(emulator: TerminalEmulator, x: Float, y: Float, towardBottom: Boolean, steps: Int) {
+        val cell = cellAt(x, y)
         val column = ((cell?.first ?: 0) + 1).coerceIn(1, emulator.mColumns)
         val row = ((cell?.second ?: 0) + 1).coerceIn(1, emulator.mRows)
         val button = if (towardBottom) TerminalEmulator.MOUSE_WHEELDOWN_BUTTON else TerminalEmulator.MOUSE_WHEELUP_BUTTON
@@ -658,6 +723,17 @@ class HostTerminalView(
 
     private companion object {
         const val CANVAS = 0xFF1A1B1D.toInt()
+        /** iOS `maximumMouseWheelEventsPerGestureTick`. */
+        const val WHEEL_BURST_CAP = 8
+        const val GLIDE_START_STEPS_PER_SECOND = 6f
+        const val GLIDE_STOP_STEPS_PER_SECOND = 3f
+        const val GLIDE_CAP_LAN = 90f
+        const val GLIDE_CAP_RELAY = 45f
+        const val GLIDE_FRICTION_LAN = 0.92f
+        const val GLIDE_FRICTION_RELAY = 0.90f
+        const val GLIDE_BURST_RELAY = 5
+        const val GLIDE_TICK_MS = 50L
+        const val GLIDE_TICK_SECONDS = 0.05f
     }
 }
 

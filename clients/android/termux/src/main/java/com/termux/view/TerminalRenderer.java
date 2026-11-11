@@ -2,6 +2,7 @@ package com.termux.view;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.util.SparseIntArray;
@@ -26,6 +27,9 @@ public final class TerminalRenderer {
     private final Paint mFallbackPaint = new Paint();
     /** 0 unknown, 1 present in the mono font, 2 missing. */
     private final SparseIntArray glyphCache = new SparseIntArray(64);
+    /** Claude's ⏵ is missing from the phone fonts, so it is drawn as a triangle. */
+    private final Path mShapePath = new Path();
+    private static final int PROMPT_TRIANGLE = 0x23F5;
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
     final float mFontWidth;
@@ -49,11 +53,11 @@ public final class TerminalRenderer {
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
         mFontLineSpacingAndAscent = mFontLineSpacing + mFontAscent;
-        // System monospace is about 0.6em. A cell half an em tall keeps the
-        // line height and narrows the glyphs. CJK is not stretched to fill
-        // two cells; that stretch is what made Chinese look fat.
+        // System monospace is about 0.6em. Half an em made CJK look thin;
+        // half a line made it fat. Sit halfway between the two. CJK is not
+        // stretched to fill two cells.
         float naturalWidth = mTextPaint.measureText("X");
-        float targetWidth = textSize * 0.5f;
+        float targetWidth = (textSize * 0.5f + mFontLineSpacing * 0.5f) * 0.5f;
         if (naturalWidth > targetWidth && targetWidth > 0f) {
             mTextPaint.setTextScaleX(targetWidth / naturalWidth);
         }
@@ -107,6 +111,7 @@ public final class TerminalRenderer {
             int lastRunStartIndex = 0;
             boolean lastRunFontWidthMismatch = false;
             boolean lastRunMissingGlyph = false;
+            boolean lastRunDrawnShape = false;
             int currentCharIndex = 0;
             float measuredWidthForRun = 0.f;
 
@@ -124,15 +129,18 @@ public final class TerminalRenderer {
                 // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
                 // smileys which android font renders as wide.
                 // If this is detected, we draw this code point scaled to match what wcwidth() expects.
-                final boolean missingGlyph = codePoint > 127 && !monoHasGlyph(line, currentCharIndex, charsForCodePoint, codePoint);
-                final float measuredCodePointWidth = missingGlyph
+                final boolean drawnShape = codePoint == PROMPT_TRIANGLE;
+                final boolean missingGlyph = !drawnShape && codePoint > 127 && !monoHasGlyph(line, currentCharIndex, charsForCodePoint, codePoint);
+                final float measuredCodePointWidth = drawnShape
+                    ? mFontWidth * Math.max(codePointWcWidth, 1)
+                    : missingGlyph
                     ? mFallbackPaint.measureText(line, currentCharIndex, charsForCodePoint)
                     : (codePoint < asciiMeasures.length) ? asciiMeasures[codePoint] : mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
                 // Only a glyph wider than its cells is scaled, and only down.
                 // Scaling a narrower CJK fallback up to two cells is the fat look.
-                final boolean fontWidthMismatch = missingGlyph || measuredCodePointWidth > mFontWidth * codePointWcWidth + 0.5f;
+                final boolean fontWidthMismatch = !drawnShape && (missingGlyph || measuredCodePointWidth > mFontWidth * codePointWcWidth + 0.5f);
 
-                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch || missingGlyph != lastRunMissingGlyph) {
+                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch || missingGlyph != lastRunMissingGlyph || drawnShape != lastRunDrawnShape) {
                     if (column == 0) {
                         // Skip first column as there is nothing to draw, just record the current style.
                     } else {
@@ -146,7 +154,7 @@ public final class TerminalRenderer {
                         drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun,
                             lastRunStartIndex, charsSinceLastRun, measuredWidthForRun,
                             cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection,
-                            lastRunMissingGlyph);
+                            lastRunMissingGlyph, lastRunDrawnShape);
                     }
                     measuredWidthForRun = 0.f;
                     lastRunStyle = style;
@@ -156,6 +164,7 @@ public final class TerminalRenderer {
                     lastRunStartIndex = currentCharIndex;
                     lastRunFontWidthMismatch = fontWidthMismatch;
                     lastRunMissingGlyph = missingGlyph;
+                    lastRunDrawnShape = drawnShape;
                 }
                 measuredWidthForRun += measuredCodePointWidth;
                 column += codePointWcWidth;
@@ -176,7 +185,7 @@ public final class TerminalRenderer {
             }
             drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
                 measuredWidthForRun, cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection,
-                lastRunMissingGlyph);
+                lastRunMissingGlyph, lastRunDrawnShape);
         }
     }
 
@@ -190,7 +199,7 @@ public final class TerminalRenderer {
 
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
-                             long textStyle, boolean reverseVideo, boolean missingGlyph) {
+                             long textStyle, boolean reverseVideo, boolean missingGlyph, boolean drawnShape) {
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
@@ -265,6 +274,11 @@ public final class TerminalRenderer {
             mTextPaint.setTextSkewX(italic ? -0.35f : 0.f);
             mTextPaint.setStrikeThruText(strikeThrough);
             mTextPaint.setColor(foreColor);
+            if (drawnShape) {
+                drawPromptTriangles(canvas, left, y, runWidthColumns);
+                if (savedMatrix) canvas.restore();
+                return;
+            }
 
             // The text alignment is the default Paint.Align.LEFT.
             Paint paint = mTextPaint;
@@ -280,6 +294,25 @@ public final class TerminalRenderer {
         }
 
         if (savedMatrix) canvas.restore();
+    }
+
+    /** One right-pointing triangle per cell. Phone fonts have no glyph for U+23F5. */
+    private void drawPromptTriangles(Canvas canvas, float left, float y, int columns) {
+        float cellW = mFontWidth;
+        float top = y - mFontLineSpacing;
+        float height = mFontLineSpacing;
+        mTextPaint.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < columns; i++) {
+            float x = left + i * cellW;
+            float insetX = cellW * 0.28f;
+            float insetY = height * 0.30f;
+            mShapePath.rewind();
+            mShapePath.moveTo(x + insetX, top + insetY);
+            mShapePath.lineTo(x + cellW - insetX, top + height * 0.5f);
+            mShapePath.lineTo(x + insetX, top + height - insetY);
+            mShapePath.close();
+            canvas.drawPath(mShapePath, mTextPaint);
+        }
     }
 
     public float getFontWidth() {
