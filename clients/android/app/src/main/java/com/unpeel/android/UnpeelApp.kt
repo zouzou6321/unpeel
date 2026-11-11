@@ -96,6 +96,7 @@ import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.unpeel.controller.AgentCatalog
+import com.unpeel.controller.AgentTerminalPolicy
 import com.unpeel.controller.PendingApproval
 import com.unpeel.controller.ProjectSummary
 import com.unpeel.controller.ResumeOffer
@@ -524,8 +525,18 @@ private fun ColumnScope.TerminalGrid(
     var cellW by remember { mutableFloatStateOf(0f) }
     var cellH by remember { mutableFloatStateOf(0f) }
     var topPad by remember { mutableFloatStateOf(0f) }
-    var selecting by remember(controller.openSessionID) { mutableStateOf(false) }
+    // One flag for the life of this grid. Keying it on the session left the
+    // view callback writing the first session's state, so later sessions
+    // never showed Copy.
+    var selecting by remember { mutableStateOf(false) }
+    var menuActive by remember { mutableStateOf(false) }
     var surface by remember { mutableStateOf<HostTerminalView?>(null) }
+    val openSession = controller.snapshot?.sessions?.firstOrNull { it.id == controller.openSessionID }
+    val canvas = terminalCanvas(openSession?.terminalBackgroundHex)
+    LaunchedEffect(controller.openSessionID) {
+        surface?.clearSelection()
+        selecting = false
+    }
     LaunchedEffect(controller.openSessionID, gridSize, imeBottom, cellW, cellH, topPad, controller.connection) {
         if (gridSize.width < 48 || gridSize.height < 48 || cellW <= 0f || cellH <= 0f) return@LaunchedEffect
         delay(120)
@@ -541,7 +552,7 @@ private fun ColumnScope.TerminalGrid(
             .weight(1f)
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp))
-            .background(Canvas),
+            .background(Color(canvas)),
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize().onSizeChanged { gridSize = it }.focusProperties { canFocus = false },
@@ -556,6 +567,19 @@ private fun ColumnScope.TerminalGrid(
                 }
             },
             update = { view ->
+                surface = view
+                view.onSelectionChanged = { selecting = it }
+                view.onMenuChanged = { active ->
+                    if (active && !menuActive) view.dismissKeyboard()
+                    menuActive = active
+                }
+                view.prefersRemoteWheel = AgentTerminalPolicy.prefersRemoteMouseWheel(
+                    openSession?.providerID,
+                    openSession?.command.orEmpty(),
+                    openSession?.activeRuntimeID,
+                )
+                controller.terminal.applyCanvas(canvas)
+                view.canvasColor = canvas
                 view.bind(controller.terminal)
                 view.onText = { controller.sendRaw(it) }
                 view.controlArmed = controlArmed
@@ -578,7 +602,24 @@ private fun ColumnScope.TerminalGrid(
                 TextButton(onClick = { surface?.clearSelection() }) { Text("取消", color = Muted) }
             }
         }
+        if (menuActive && imeBottom == 0) {
+            Row(
+                Modifier.align(Alignment.BottomCenter).zIndex(2f).padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TerminalKey("▲") { surface?.menuKey("up")?.let(controller::sendRaw) }
+                TerminalKey("▼") { surface?.menuKey("down")?.let(controller::sendRaw) }
+                TerminalKey("esc", 11) { surface?.menuKey("escape")?.let(controller::sendRaw) }
+                TerminalKey("⏎") { surface?.menuKey("enter")?.let(controller::sendRaw) }
+            }
+        }
     }
+}
+
+private fun terminalCanvas(hex: Int?): Int {
+    if (hex == null) return HostTerminal.CANVAS
+    return 0xFF000000.toInt() or (hex and 0xFFFFFF)
 }
 
 /**

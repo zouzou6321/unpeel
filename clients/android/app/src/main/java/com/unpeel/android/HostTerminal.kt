@@ -29,6 +29,11 @@ class HostTerminal(
     private var live = false
     private var cellWidth = 8
     private var cellHeight = 16
+    private var appliedCanvas = CANVAS
+
+    /** True after this screen has accepted output, so its modes are authoritative. */
+    var sawOutput: Boolean = false
+        private set
 
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
@@ -82,8 +87,21 @@ class HostTerminal(
     /** Drop the screen and start a new grid. Does not talk to the Host. */
     fun prepare(columns: Int, rows: Int) {
         live = false
+        sawOutput = false
         emulator = create(columns.coerceIn(2, 300), rows.coerceIn(2, 120))
         onFrame?.invoke()
+    }
+
+    /** Terminal frame color. OpenCode and Grok send a hex; everyone else stays on the default. */
+    fun applyCanvas(argb: Int) {
+        if (argb == appliedCanvas) return
+        appliedCanvas = argb
+        val scheme = TerminalColors.COLOR_SCHEME
+        scheme.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND] = argb
+        scheme.setCursorColorForBackground()
+        emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND] = argb
+        emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] =
+            scheme.mDefaultColors[TextStyle.COLOR_INDEX_CURSOR]
     }
 
     /**
@@ -102,6 +120,7 @@ class HostTerminal(
         if (bytes.isEmpty()) return
         this.live = live
         emulator.append(bytes, bytes.size)
+        sawOutput = true
         onFrame?.invoke()
     }
 
@@ -119,8 +138,8 @@ class HostTerminal(
         }
     }
 
-    private companion object {
-        const val TRANSCRIPT_ROWS = 2000
+    companion object {
+        private const val TRANSCRIPT_ROWS = 2000
         const val CANVAS = 0xFF1A1B1D.toInt()
     }
 }

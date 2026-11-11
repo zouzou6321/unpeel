@@ -19,6 +19,7 @@ import android.view.inputmethod.InputMethodManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.view.TerminalMetrics
 import com.termux.view.TerminalRenderer
+import com.unpeel.controller.AgentTerminalPolicy
 import com.unpeel.controller.TerminalInput
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -38,6 +39,17 @@ class HostTerminalView(
     val topPad: Int
 
     var onSelectionChanged: ((Boolean) -> Unit)? = null
+    /** Rising and falling edges of an on-screen select menu. */
+    var onMenuChanged: ((Boolean) -> Unit)? = null
+    /** Claude, Grok, or OpenCode, for the wheel guess before modes arrive. */
+    var prefersRemoteWheel: Boolean = false
+    var canvasColor: Int = CANVAS
+        set(value) {
+            if (field == value) return
+            field = value
+            setBackgroundColor(value)
+            invalidate()
+        }
     /** Raw terminal bytes. Enter is already `\r`. A multi-line paste is bracketed and not submitted. */
     var onText: ((String) -> Unit)? = null
     /** Sticky control from the key row. Read when a letter is committed. */
@@ -51,8 +63,8 @@ class HostTerminalView(
     private var panX = 0
     /** Finger travel not yet worth a whole row, in GestureDetector distanceY sign. */
     private var scrollRemainder = 0f
-    /** Rows already sent to the host that its next frame has not drawn yet. */
-    private var pendingRemoteRows = 0
+    /** Wheel travel for a full-screen program. Never moves the canvas. */
+    private var wheelRemainder = 0f
     private var flingVelocity = 0f
     private var selecting = false
     private var selX1 = -1
@@ -60,27 +72,24 @@ class HostTerminalView(
     private var selX2 = -1
     private var selY2 = -1
     private var blinkOn = true
+    private var menuActive = false
 
     private val frameListener: () -> Unit = {
-        // The host picture already includes the rows we asked for.
-        pendingRemoteRows = 0
-        if (terminal.emulator.isMouseTrackingActive()) {
-            scrollRemainder = 0f
-        }
         noteEmulator(terminal.emulator)
         clampOffset(terminal.emulator)
+        publishMenu()
         postInvalidateOnAnimation()
     }
 
     private val flingTick = object : Runnable {
         override fun run() {
             val emulator = terminal.emulator
-            if (flingVelocity == 0f || emulator.isMouseTrackingActive()) {
+            if (flingVelocity == 0f || forwarding(emulator) != AgentTerminalPolicy.Wheel.None) {
                 flingVelocity = 0f
                 return
             }
             scrollRemainder += flingVelocity * 0.016f
-            applyScrollLines(emulator, null)
+            applyScrollLines(emulator)
             flingVelocity *= 0.90f
             if (kotlin.math.abs(flingVelocity) < 50f) flingVelocity = 0f
             invalidate()
@@ -143,9 +152,10 @@ class HostTerminalView(
             // Finger down (negative distance) moves toward older rows.
             // The picture shifts with the finger immediately; a whole row
             // is committed only after the finger has travelled one cell.
+            if (forwardRemote(emulator, e2, distanceY)) return true
             if (distanceY != 0f && cellHeight > 0) {
                 scrollRemainder += distanceY
-                applyScrollLines(emulator, e2)
+                applyScrollLines(emulator)
             }
             panX -= distanceX.toInt()
             horizontalShift(emulator)
@@ -156,27 +166,23 @@ class HostTerminalView(
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
             if (selecting || cellHeight <= 0) return false
             val emulator = terminal.emulator
-            // velocityY is downward. distanceY (and scrollRemainder) grow when the finger moves up.
-            if (emulator.isMouseTrackingActive()) {
-                val lines = (-velocityY / cellHeight / 6f).toInt()
-                if (lines == 0) return false
-                val steps = min(kotlin.math.abs(lines), 8)
-                val applied = if (lines > 0) steps else -steps
-                pendingRemoteRows += applied
-                sendWheel(emulator, e2, applied > 0, steps)
-                invalidate()
-                return true
+            // velocityY is downward. A positive line count reveals newer rows.
+            when (forwarding(emulator)) {
+                AgentTerminalPolicy.Wheel.Mouse, AgentTerminalPolicy.Wheel.AlternateScroll -> {
+                    val lines = (-velocityY / cellHeight / 6f).toInt()
+                    if (lines == 0) return false
+                    val steps = min(kotlin.math.abs(lines), 8)
+                    if (forwarding(emulator) == AgentTerminalPolicy.Wheel.Mouse) {
+                        sendWheel(emulator, e2, lines > 0, steps)
+                    } else {
+                        sendAlternateScroll(lines > 0, steps)
+                    }
+                }
+                AgentTerminalPolicy.Wheel.None -> {
+                    flingVelocity = -velocityY
+                    postOnAnimation(flingTick)
+                }
             }
-            // A full-screen program keeps its own transcript. Page keys scroll
-            // that transcript. Cursor keys do not: those recall shell history.
-            if (emulator.isAlternateBufferActive()) {
-                val lines = (-velocityY / cellHeight / 6f).toInt()
-                if (lines == 0) return false
-                sendPageScroll(lines > 0, min(kotlin.math.abs(lines), 4))
-                return true
-            }
-            flingVelocity = -velocityY
-            postOnAnimation(flingTick)
             return true
         }
     })
@@ -220,6 +226,17 @@ class HostTerminalView(
         clipboard.setPrimaryClip(ClipData.newPlainText("unpeel", text))
         if (clear) clearSelection()
         return true
+    }
+
+    /** Up, down, enter, or escape for an on-screen select menu. Arrows follow DECCKM. */
+    fun menuKey(name: String): String {
+        val application = terminal.emulator.isCursorKeysApplicationMode()
+        return when (name) {
+            "up" -> if (application) "\u001bOA" else "\u001b[A"
+            "down" -> if (application) "\u001bOB" else "\u001b[B"
+            "enter" -> "\r"
+            else -> "\u001b"
+        }
     }
 
     fun clearSelection() {
@@ -357,11 +374,17 @@ class HostTerminalView(
     override fun onDraw(canvas: Canvas) {
         val emulator = terminal.emulator
         noteEmulator(emulator)
-        canvas.drawColor(CANVAS)
+        canvas.drawColor(canvasColor)
         canvas.save()
         val placed = place(emulator)
         topRow = placed.first
-        canvas.translate(horizontalShift(emulator).toFloat(), placed.second.toFloat())
+        val shift = if (forwarding(emulator) != AgentTerminalPolicy.Wheel.None) {
+            panX = 0
+            0
+        } else {
+            horizontalShift(emulator)
+        }
+        canvas.translate(shift.toFloat(), placed.second.toFloat())
         val sel = selectionArgs()
         if (sel == null) {
             renderer.render(emulator, canvas, topRow, -1, -1, -1, -1)
@@ -371,6 +394,17 @@ class HostTerminalView(
         canvas.restore()
     }
 
+    private fun publishMenu() {
+        val emulator = terminal.emulator
+        val text = runCatching {
+            emulator.getSelectedText(0, 0, emulator.mColumns, emulator.mRows)
+        }.getOrDefault("")
+        val active = AgentTerminalPolicy.viewportHasMenuPrompt(text)
+        if (active == menuActive) return
+        menuActive = active
+        onMenuChanged?.invoke(active)
+    }
+
     private fun noteEmulator(emulator: TerminalEmulator) {
         if (drawn === emulator) return
         drawn = emulator
@@ -378,39 +412,66 @@ class HostTerminalView(
         offsetRows = 0
         panX = 0
         scrollRemainder = 0f
-        pendingRemoteRows = 0
+        wheelRemainder = 0f
         flingVelocity = 0f
         if (selecting) clearSelection()
+        if (menuActive) {
+            menuActive = false
+            onMenuChanged?.invoke(false)
+        }
     }
 
-    /**
-     * Turns accumulated finger travel into whole rows. Remote rows are sent
-     * to the host; the local buffer moves `offsetRows`. Pixels short of a
-     * row stay in `scrollRemainder` and `place` draws them.
-     */
-    private fun applyScrollLines(emulator: TerminalEmulator, event: MotionEvent?) {
+    /** Turns accumulated finger travel into whole rows of the local scrollback. */
+    private fun applyScrollLines(emulator: TerminalEmulator) {
         if (cellHeight <= 0) return
         val lines = (scrollRemainder / cellHeight).toInt()
         if (lines == 0) return
-        val remote = emulator.isMouseTrackingActive()
-        val steps = if (remote) min(kotlin.math.abs(lines), 24) else kotlin.math.abs(lines)
-        val applied = if (lines > 0) steps else -steps
+        val applied = if (lines > 0) lines else -kotlin.math.abs(lines)
         scrollRemainder -= applied * cellHeight
-        when {
-            // Cursor keys are not a scroll gesture. Sending them walks shell
-            // history and drops an old command into the prompt.
-            emulator.isMouseTrackingActive() && event != null -> {
-                pendingRemoteRows += applied
-                sendWheel(emulator, event, applied > 0, steps)
-            }
-            emulator.isAlternateBufferActive() && event != null -> {
-                sendPageScroll(applied > 0, min(steps, 4))
-            }
-            else -> {
-                offsetRows = (offsetRows - applied).coerceIn(0, maxOffset(emulator))
-                clampOffset(emulator)
-            }
+        offsetRows = (offsetRows - applied).coerceIn(0, maxOffset(emulator))
+        clampOffset(emulator)
+    }
+
+    /** iOS `wheelForwarding`. The view stays put for anything other than local scrollback. */
+    private fun forwarding(emulator: TerminalEmulator): AgentTerminalPolicy.Wheel {
+        return AgentTerminalPolicy.wheelForwarding(
+            modesKnown = terminal.sawOutput,
+            mouseTracking = emulator.isMouseTrackingActive(),
+            alternateScreen = emulator.isAlternateBufferActive(),
+            sawMouseOrAlternateDisable = false,
+            prefersRemoteMouseWheel = prefersRemoteWheel,
+        )
+    }
+
+    /** True when the gesture was consumed by the remote program. */
+    private fun forwardRemote(emulator: TerminalEmulator, event: MotionEvent, distanceY: Float): Boolean {
+        val mode = forwarding(emulator)
+        if (mode == AgentTerminalPolicy.Wheel.None) return false
+        panX = 0
+        if (distanceY == 0f || cellHeight <= 0) return true
+        wheelRemainder += distanceY
+        val lines = (wheelRemainder / cellHeight).toInt()
+        if (lines == 0) return true
+        val steps = min(kotlin.math.abs(lines), 24)
+        val applied = if (lines > 0) steps else -steps
+        wheelRemainder -= applied * cellHeight
+        when (mode) {
+            AgentTerminalPolicy.Wheel.Mouse -> sendWheel(emulator, event, applied > 0, steps)
+            AgentTerminalPolicy.Wheel.AlternateScroll -> sendAlternateScroll(applied > 0, steps)
+            AgentTerminalPolicy.Wheel.None -> Unit
         }
+        return true
+    }
+
+    /** Cursor up/down for a full-screen program that does not track the mouse. */
+    private fun sendAlternateScroll(towardBottom: Boolean, steps: Int) {
+        val application = terminal.emulator.isCursorKeysApplicationMode()
+        val key = if (towardBottom) {
+            if (application) "\u001bOB" else "\u001b[B"
+        } else {
+            if (application) "\u001bOA" else "\u001b[A"
+        }
+        onText?.invoke(key.repeat(steps.coerceAtLeast(1)))
     }
 
     /** Rows of the current screen that sit above the view, plus saved scrollback. */
@@ -431,18 +492,16 @@ class HostTerminalView(
 
     /** topRow for the renderer, and the Y translation that puts that row in view. */
     private fun place(emulator: TerminalEmulator): Pair<Int, Int> {
+        if (forwarding(emulator) != AgentTerminalPolicy.Wheel.None) return 0 to minPanY(emulator)
         clampOffset(emulator)
-        val remote = emulator.isMouseTrackingActive()
-        if (!remote) {
-            if (offsetRows == 0 && scrollRemainder > 0f) scrollRemainder = 0f
-            if (offsetRows == maxOffset(emulator) && scrollRemainder < 0f) scrollRemainder = 0f
-        }
+        if (offsetRows == 0 && scrollRemainder > 0f) scrollRemainder = 0f
+        if (offsetRows == maxOffset(emulator) && scrollRemainder < 0f) scrollRemainder = 0f
         val hidden = (emulator.mRows - visibleRows()).coerceAtLeast(0)
         val intoHistory = (offsetRows - hidden).coerceAtLeast(0)
         val row = -intoHistory
         val base = if (intoHistory > 0) 0 else minPanY(emulator) + offsetRows * cellHeight
         // Negative remainder is a finger moving down, so the picture moves down with it.
-        val slack = Math.round(-scrollRemainder) - pendingRemoteRows * cellHeight
+        val slack = Math.round(-scrollRemainder)
         return row to (base + slack)
     }
 
@@ -485,18 +544,14 @@ class HostTerminalView(
         return kotlin.math.abs(cell.second - emulator.cursorRow) <= 1
     }
 
-    /** Finger moving up (`towardBottom`) reveals newer rows of a full-screen program. */
-    private fun sendPageScroll(towardBottom: Boolean, steps: Int) {
-        val key = if (towardBottom) "\u001b[6~" else "\u001b[5~"
-        onText?.invoke(key.repeat(steps.coerceAtLeast(1)))
-    }
-
     private fun sendWheel(emulator: TerminalEmulator, event: MotionEvent, towardBottom: Boolean, steps: Int) {
         val cell = cellAt(event.x, event.y)
         val column = ((cell?.first ?: 0) + 1).coerceIn(1, emulator.mColumns)
         val row = ((cell?.second ?: 0) + 1).coerceIn(1, emulator.mRows)
         val button = if (towardBottom) TerminalEmulator.MOUSE_WHEELDOWN_BUTTON else TerminalEmulator.MOUSE_WHEELUP_BUTTON
-        val payload = if (emulator.isMouseProtocolSgr()) {
+        // iOS always sends SGR for a guessed wheel, before the program has enabled tracking.
+        val sgr = emulator.isMouseProtocolSgr() || !emulator.isMouseTrackingActive()
+        val payload = if (sgr) {
             "\u001b[<$button;$column;${row}M".repeat(steps)
         } else {
             val code = ByteArray(6 * steps)
