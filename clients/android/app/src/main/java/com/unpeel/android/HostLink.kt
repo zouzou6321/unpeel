@@ -297,6 +297,16 @@ class RelayLink(
     }
 }
 
+/** WebSocket client for `unpeel-host __remote__`. Same leaf pin as `/mobile`. */
+internal fun remoteWebSocketClient(fingerprint: String?): OkHttpClient =
+    httpClient(fingerprint).newBuilder()
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .writeTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
+        .build()
+
 private fun httpClient(fingerprint: String?): OkHttpClient {
     val builder = OkHttpClient.Builder()
         .callTimeout(30, TimeUnit.SECONDS)

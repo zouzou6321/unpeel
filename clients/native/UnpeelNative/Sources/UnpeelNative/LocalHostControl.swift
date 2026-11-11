@@ -27,6 +27,8 @@ enum LocalHostControl {
         let action: String
         var advertisedHost: String? = nil
         var advertisedPort: UInt16? = nil
+        var publicHost: String? = nil
+        var publicPort: UInt16? = nil
         var deviceID: String? = nil
         var allowed: Bool? = nil
     }
@@ -53,10 +55,42 @@ enum LocalHostControl {
         let message: String?
     }
 
-    static func beginPairing(home: String) async throws -> RemotePairingPayload {
+    /// `publicOnly` puts the configured address in the code.
+    /// `both` leaves the local address in the code and tells the Host to
+    /// return the public address in the sealed pairing response.
+    static func beginPairing(home: String, route: PairingRoute = .lan) async throws -> RemotePairingPayload {
+        switch route {
+        case .lan:
+            return try await beginPairing(home: home, advertisedHost: nil, advertisedPort: nil)
+        case .publicOnly(let host, let port):
+            return try await beginPairing(home: home, advertisedHost: host, advertisedPort: port)
+        case .both(let host, let port):
+            return try await beginPairing(
+                home: home,
+                advertisedHost: nil,
+                advertisedPort: nil,
+                publicHost: host,
+                publicPort: port
+            )
+        }
+    }
+
+    private static func beginPairing(
+        home: String,
+        advertisedHost: String?,
+        advertisedPort: UInt16?,
+        publicHost: String? = nil,
+        publicPort: UInt16? = nil
+    ) async throws -> RemotePairingPayload {
         let data = try await call(
             home: home,
-            request: Request(action: "begin")
+            request: Request(
+                action: "begin",
+                advertisedHost: advertisedHost,
+                advertisedPort: advertisedPort,
+                publicHost: publicHost,
+                publicPort: publicPort
+            )
         )
         let response = try decode(PairingResponse.self, from: data)
         guard let payload = RemotePairingCode.decode(response.code) else {

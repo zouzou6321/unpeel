@@ -19,7 +19,18 @@ class ProtocolTest {
         assertEquals("abc-1", payload.macID)
         assertEquals("TokenValue", payload.token)
         assertEquals("http://10.0.0.8:53621/mobile", payload.endpoint)
+        assertNull(payload.publicEndpoint)
         assertEquals(1893456000_000L, payload.expiresAtUnixMs)
+    }
+
+    @Test
+    fun compactPairingCodeKeepsThePublicAddressBesideTheLanAddress() {
+        val payload = PairingCode.decode(
+            "UNPEEL:1:10.0.0.8:53621:AbC-1:TokenValue:1893456000:203.0.113.8:8443",
+        )
+        assertEquals("http://10.0.0.8:53621/mobile", payload?.endpoint)
+        assertEquals("http://203.0.113.8:8443/mobile", payload?.publicEndpoint)
+        assertNull(PairingCode.decode("UNPEEL:1:10.0.0.8:53621:AbC-1:TokenValue:1893456000:203.0.113.8:nope"))
     }
 
     @Test

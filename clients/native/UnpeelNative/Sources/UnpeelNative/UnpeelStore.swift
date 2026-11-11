@@ -3090,14 +3090,14 @@ final class UnpeelStore: ObservableObject {
         }
     }
 
-    func beginHostPairing() {
+    func beginHostPairing(route: PairingRoute = .lan) {
         guard UnpeelFeatureFlags.mobileRemoteControlEnabled else { return }
         startLocalHostControlRefresh()
         hostServerError = nil
         let home = LaunchConfig.unpeelDir.standardizedFileURL.path
         Task { @MainActor [weak self] in
             do {
-                let payload = try await LocalHostControl.beginPairing(home: home)
+                let payload = try await LocalHostControl.beginPairing(home: home, route: route)
                 guard let self else { return }
                 self.hostPairingPresentation = .active(payload)
                 await self.refreshLocalHostControlState()
@@ -3112,7 +3112,7 @@ final class UnpeelStore: ObservableObject {
     /// loopback bridge (launching the instance first when it isn't running —
     /// a paired phone needs that instance serving anyway), and this window
     /// only displays it. The sibling's credentials never pass through here.
-    func beginScopedWorkspacePairing() {
+    func beginScopedWorkspacePairing(route: PairingRoute = .lan) {
         guard case let .localWorkspace(home, name) = selectedHostScope else { return }
         scopedWorkspacePairingTask?.cancel()
         scopedWorkspacePairingGeneration &+= 1
@@ -3121,7 +3121,11 @@ final class UnpeelStore: ObservableObject {
         scopedWorkspacePairingError = nil
         scopedWorkspacePairingTask = Task { @MainActor [weak self] in
             do {
-                let payload = try await Self.mintWorkspacePairingCode(home: home, name: name)
+                let payload = try await Self.mintWorkspacePairingCode(
+                    home: home,
+                    name: name,
+                    route: route
+                )
                 guard let self, self.scopedWorkspacePairingGeneration == generation else { return }
                 self.scopedWorkspacePairingPresentation = .active(payload)
             } catch is CancellationError {
@@ -3145,7 +3149,8 @@ final class UnpeelStore: ObservableObject {
     /// boots (a cold instance needs a few seconds to write `app-ports`).
     private static func mintWorkspacePairingCode(
         home: String,
-        name: String
+        name: String,
+        route: PairingRoute
     ) async throws -> RemotePairingPayload {
         HostServiceManager.shared.ensureStarted()
         let deadline = Date().addingTimeInterval(25)
@@ -3153,7 +3158,7 @@ final class UnpeelStore: ObservableObject {
         while Date() < deadline {
             try Task.checkCancellation()
             do {
-                return try await LocalHostControl.beginPairing(home: home)
+                return try await LocalHostControl.beginPairing(home: home, route: route)
             } catch {
                 lastError = error
                 try await Task.sleep(nanoseconds: 500_000_000)
@@ -3271,10 +3276,11 @@ final class UnpeelStore: ObservableObject {
     }
 
     func cancelHostPairing() {
+        hostPairingPresentation = .idle
+        hostServerError = nil
         let home = LaunchConfig.unpeelDir.standardizedFileURL.path
         Task { @MainActor [weak self] in
             try? await LocalHostControl.cancelPairing(home: home)
-            self?.hostPairingPresentation = .idle
             await self?.refreshLocalHostControlState(home: home)
         }
     }

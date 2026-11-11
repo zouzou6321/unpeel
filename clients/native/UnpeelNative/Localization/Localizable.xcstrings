@@ -1,6 +1,176 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Choose how this code connects": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个配对码怎么连"
+          }
+        }
+      }
+    },
+    "Local network": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网"
+          }
+        }
+      }
+    },
+    "Public address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公网"
+          }
+        }
+      }
+    },
+    "Both": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两个都要"
+          }
+        }
+      }
+    },
+    "The code carries this Mac's local address.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码里是这台 Mac 的局域网地址。"
+          }
+        }
+      }
+    },
+    "The code carries only the public address. Fill in the IP and port. This Mac checks that it can open them before saving.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码里只有公网地址。填好 IP 和端口后，这台 Mac 会先检查自己能不能连上，连上才允许保存。"
+          }
+        }
+      }
+    },
+    "The phone uses the local network when it can, switches to the public address when it cannot, and comes back when the local network answers again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "能走局域网就走局域网。局域网不通时改走公网，并继续探测局域网，一旦可用就回到局域网。"
+          }
+        }
+      }
+    },
+    "The code keeps this Mac's local address, so an iPhone scans it as before. An Android phone also remembers the public address, uses it when the local network does not answer, and switches back as soon as the local network does.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "二维码仍是这台 Mac 的局域网地址，iPhone 照旧扫描。安卓还会记下公网地址：局域网不通时走公网，并继续探测，局域网一恢复就立刻切回去。"
+          }
+        }
+      }
+    },
+    "Public IP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公网 IP"
+          }
+        }
+      }
+    },
+    "Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
+        }
+      }
+    },
+    "Checking whether this Mac can open that address…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查这台 Mac 能不能连上这个地址…"
+          }
+        }
+      }
+    },
+    "This Mac can reach that address.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 能连上这个地址。"
+          }
+        }
+      }
+    },
+    "This Mac could not open that address. The IP and port have to reach this Mac's pairing service.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 连不上这个地址。请确认 IP 和端口能到达这台 Mac 的配对服务。"
+          }
+        }
+      }
+    },
+    "Enter the public IPv4 address and the forwarded port.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写公网 IPv4 地址和转发端口。"
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "Change connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改连接方式"
+          }
+        }
+      }
+    },
+    "The live terminal uses a second port. Until that port is forwarded, public connections fall back to ordinary fetching.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端实时通道用另一个端口。这个端口没做转发时，公网会退回普通拉取。"
+          }
+        }
+      }
+    },
     "System": {
       "localizations": {
         "zh-Hans": {

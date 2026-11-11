@@ -98,9 +98,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.unpeel.controller.AgentCatalog
 import com.unpeel.controller.AgentTerminalPolicy
 import com.unpeel.controller.PendingApproval
@@ -1413,24 +1415,101 @@ private fun PairScreen(controller: Controller, firstRun: Boolean) {
 @Composable
 private fun PairFields(controller: Controller, context: android.content.Context) {
     var code by remember { mutableStateOf("") }
+    var lastCode by remember { mutableStateOf<String?>(null) }
+    var lastCodeAt by remember { mutableStateOf(0L) }
+    var cameraGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cameraGranted = granted
         if (!granted) controller.reportError("需要相机权限才能扫配对码")
     }
-    val scan = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { controller.pair(it) }
-    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(
-            onClick = {
-                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-                if (granted) scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("对准 Unpeel 配对码"))
-                else permission.launch(Manifest.permission.CAMERA)
-            },
+        Text(
+            "扫描配对码",
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("扫描二维码") }
-        OutlinedTextField(value = code, onValueChange = { code = it }, modifier = Modifier.fillMaxWidth(), label = { Text("或粘贴配对码") }, minLines = 2)
-        TextButton(onClick = { controller.pair(code) }, enabled = !controller.busy && code.isNotBlank()) { Text("用这段配对") }
+            textAlign = TextAlign.Start,
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (cameraGranted) {
+                PairingScanner(enabled = !controller.busy) { scanned ->
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (controller.busy || (scanned == lastCode && now - lastCodeAt < 2_500)) return@PairingScanner
+                    lastCode = scanned
+                    lastCodeAt = now
+                    controller.pair(scanned)
+                }
+            } else {
+                Text(
+                    "需要相机权限才能扫配对码",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable { permission.launch(Manifest.permission.CAMERA) }
+                        .padding(24.dp),
+                )
+            }
+        }
+        Text(
+            "或粘贴配对码",
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = code,
+            onValueChange = { code = it },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
+            placeholder = { Text("配对码", color = Color.White.copy(alpha = 0.35f), fontSize = 12.sp) },
+            minLines = 3,
+            textStyle = TextStyle(
+                color = Foreground,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+            ),
+            shape = RoundedCornerShape(10.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = Color.White.copy(alpha = 0.06f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                cursorColor = Color(0xFF32ADE6),
+            ),
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (!controller.busy && code.isNotBlank()) Color(0xFF32ADE6) else Color(0xFF32ADE6).copy(alpha = 0.35f))
+                .clickable(enabled = !controller.busy && code.isNotBlank()) { controller.pair(code) }
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (controller.busy) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+            } else {
+                Text("连接", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         controller.error?.let { Text(it, color = Color(0xFFE85D5D), fontSize = 13.sp) }
+    }
+    if (!cameraGranted) {
+        LaunchedEffect(Unit) { permission.launch(Manifest.permission.CAMERA) }
     }
 }
 

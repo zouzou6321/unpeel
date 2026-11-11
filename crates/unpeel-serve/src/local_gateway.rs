@@ -49,6 +49,8 @@ pub(crate) enum LocalControlRequest {
     BeginPairing {
         advertised_host: Option<String>,
         advertised_port: Option<u16>,
+        public_host: Option<String>,
+        public_port: Option<u16>,
         reply: mpsc::SyncSender<Result<serde_json::Value, String>>,
     },
     PairingStatus {
@@ -589,6 +591,15 @@ fn handle_local_control(
                 .map(str::to_owned),
             advertised_port: body
                 .get("advertisedPort")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|port| u16::try_from(port).ok())
+                .filter(|port| *port > 0),
+            public_host: body
+                .get("publicHost")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            public_port: body
+                .get("publicPort")
                 .and_then(serde_json::Value::as_u64)
                 .and_then(|port| u16::try_from(port).ok())
                 .filter(|port| *port > 0),

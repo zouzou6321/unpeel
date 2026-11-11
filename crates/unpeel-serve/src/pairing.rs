@@ -36,6 +36,9 @@ pub struct ActivePairing {
     pub endpoint: String,
     pub direct_endpoint: String,
     pub expires_at_ms: u64,
+    /// Configured public dial address. Absent from the QR so a shipped iOS
+    /// scanner still sees the original code. Returned in the sealed response.
+    pub public_endpoint: Option<String>,
 }
 
 #[derive(Default)]
@@ -220,8 +223,25 @@ impl PairingWindow {
     /// Open a 5-minute window and return (QR text, token). Overwrites any
     /// existing window — one pairing at a time, same as the app.
     pub fn begin(&self, host: &str, port: u16, mac_id: &str) -> Option<(String, String)> {
+        self.begin_with_public(host, port, mac_id, None)
+    }
+
+    /// `public_endpoint` is `http://host:port/mobile` for a second dial address.
+    /// The QR text stays the local (or advertised) endpoint.
+    pub fn begin_with_public(
+        &self,
+        host: &str,
+        port: u16,
+        mac_id: &str,
+        public_endpoint: Option<&str>,
+    ) -> Option<(String, String)> {
         if host.contains(':') || host.is_empty() || mac_id.is_empty() {
             return None; // IPv6 hosts can't be encoded in the compact form
+        }
+        if let Some(public_endpoint) = public_endpoint {
+            if !valid_direct_endpoint(public_endpoint) {
+                return None;
+            }
         }
         let token = base32_encode(&random_bytes(16));
         let expires_at_ms = now_ms() + PAIRING_TTL.as_millis() as u64;
@@ -239,6 +259,7 @@ impl PairingWindow {
             direct_endpoint: endpoint.clone(),
             endpoint,
             expires_at_ms,
+            public_endpoint: public_endpoint.map(str::to_owned),
         });
         Some((code, token))
     }
@@ -269,6 +290,7 @@ impl PairingWindow {
             endpoint: endpoint.to_owned(),
             direct_endpoint: direct_endpoint.to_owned(),
             expires_at_ms,
+            public_endpoint: None,
         });
         Some(serde_json::json!({
             "protocolVersion": 1,
@@ -451,6 +473,11 @@ impl PairingWindow {
         });
         if active.direct_endpoint != active.endpoint {
             response["directEndpoint"] = active.direct_endpoint.clone().into();
+        }
+        if let Some(public_endpoint) = active.public_endpoint.clone() {
+            if public_endpoint != active.endpoint && public_endpoint != active.direct_endpoint {
+                response["publicEndpoint"] = public_endpoint.into();
+            }
         }
         if let Some(obj) = response.as_object_mut() {
             // Additive: the direct endpoint above is served over TLS with the

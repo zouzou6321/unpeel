@@ -322,10 +322,35 @@ final class RemoteControlProtocolTests: XCTestCase {
 
         let decoded = try XCTUnwrap(RemotePairingCode.decode(code))
         XCTAssertEqual(decoded.endpoint, payload.endpoint)
+        XCTAssertNil(decoded.publicEndpoint)
         XCTAssertEqual(decoded.token, payload.token)
         XCTAssertEqual(decoded.expiresAtUnixMs, payload.expiresAtUnixMs)
         XCTAssertEqual(decoded.protocolVersion, payload.protocolVersion)
         XCTAssertEqual(decoded.macID, payload.macID)
+    }
+
+    func testCompactPairingCodeStaysScannableWhenAPublicAddressIsAlsoConfigured() throws {
+        let payload = RemotePairingPayload(
+            macID: "mac-1",
+            macName: "Studio Mac",
+            endpoint: URL(string: "http://192.168.1.20:49152/mobile")!,
+            publicEndpoint: URL(string: "http://203.0.113.8:8443/mobile")!,
+            token: "K7ZP2Q4RSTUVWXYZABCDEFGH23",
+            certificateFingerprint: nil,
+            expiresAtUnixMs: 1_789_996_900_000
+        )
+
+        let code = try XCTUnwrap(RemotePairingCode.encode(payload))
+        XCTAssertEqual(
+            code,
+            "UNPEEL:1:192.168.1.20:49152:MAC-1:K7ZP2Q4RSTUVWXYZABCDEFGH23:1789996900"
+        )
+        let decoded = try XCTUnwrap(RemotePairingCode.decode(code))
+        XCTAssertEqual(decoded.endpoint, payload.endpoint)
+        XCTAssertNil(decoded.publicEndpoint)
+        XCTAssertNil(RemotePairingCode.decode(
+            "UNPEEL:1:192.168.1.20:49152:MAC-1:K7ZP2Q4RSTUVWXYZABCDEFGH23:1789996900:203.0.113.8:8443"
+        ))
     }
 
     func testControllerAssistedPairingCodeRoundTrip() throws {

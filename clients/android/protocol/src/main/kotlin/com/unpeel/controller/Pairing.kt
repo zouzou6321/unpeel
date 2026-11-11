@@ -7,6 +7,7 @@ import java.util.Base64
 /**
  * Compact pairing code:
  * `UNPEEL:<version>:<host>:<port>:<macID>:<token>:<expiresUnixSeconds>[:proxyID]`
+ * A code that carries both addresses appends `:<publicHost>:<publicPort>` instead of a proxy id.
  * The JSON form of [PairingPayload] is also accepted.
  */
 object PairingCode {
@@ -35,12 +36,13 @@ object PairingCode {
             token = token,
             certificateFingerprint = objectJson.optString("certificateFingerprint").ifEmpty { null },
             expiresAtUnixMs = expires,
+            publicEndpoint = objectJson.optString("publicEndpoint").ifEmpty { null },
         )
     }
 
     private fun decodeCompact(raw: String): PairingPayload? {
         val parts = raw.split(":")
-        if (parts.size != 7 && parts.size != 8) return null
+        if (parts.size != 7 && parts.size != 8 && parts.size != 9) return null
         if (!parts[0].equals(PREFIX, ignoreCase = true)) return null
         val version = parts[1].toIntOrNull() ?: return null
         val port = parts[3].toIntOrNull() ?: return null
@@ -50,12 +52,22 @@ object PairingCode {
         val macID = parts[4].lowercase()
         val token = parts[5]
         if (host.isEmpty() || macID.isEmpty() || token.isEmpty()) return null
-        val path = if (parts.size == 8) {
+        val path: String
+        val publicEndpoint: String?
+        if (parts.size == 9) {
+            val publicHost = parts[7]
+            val publicPort = parts[8].toIntOrNull() ?: return null
+            if (publicHost.isEmpty() || publicHost.contains("/") || publicPort !in 1..65535) return null
+            path = "/mobile"
+            publicEndpoint = "http://$publicHost:$publicPort/mobile"
+        } else if (parts.size == 8) {
             val proxyID = parts[7]
             if (!proxyID.matches(Regex("^[A-Za-z0-9-]+$"))) return null
-            PROXY_PREFIX + proxyID
+            path = PROXY_PREFIX + proxyID
+            publicEndpoint = null
         } else {
-            "/mobile"
+            path = "/mobile"
+            publicEndpoint = null
         }
         return PairingPayload(
             protocolVersion = version,
@@ -65,6 +77,7 @@ object PairingCode {
             token = token,
             certificateFingerprint = null,
             expiresAtUnixMs = expiresSeconds * 1000,
+            publicEndpoint = publicEndpoint,
         )
     }
 }
@@ -77,6 +90,7 @@ data class PairingPayload(
     val token: String,
     val certificateFingerprint: String?,
     val expiresAtUnixMs: Long,
+    val publicEndpoint: String? = null,
 )
 
 data class DeviceIdentity(

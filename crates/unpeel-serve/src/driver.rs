@@ -1339,11 +1339,15 @@ impl HostRuntime {
                 LocalControlRequest::BeginPairing {
                     advertised_host,
                     advertised_port,
+                    public_host,
+                    public_port,
                     reply,
                 } => {
                     let result = self.begin_local_pairing(
                         advertised_host.as_deref(),
                         advertised_port,
+                        public_host.as_deref(),
+                        public_port,
                         emitted,
                     );
                     let _ = reply.send(result);
@@ -1508,6 +1512,8 @@ impl HostRuntime {
         &mut self,
         advertised_host: Option<&str>,
         advertised_port: Option<u16>,
+        public_host: Option<&str>,
+        public_port: Option<u16>,
         emitted: &mut Vec<ServeEvent>,
     ) -> Result<serde_json::Value, String> {
         if self.native_app_owns_controllers() {
@@ -1528,9 +1534,20 @@ impl HostRuntime {
             .map(str::to_owned)
             .unwrap_or_else(crate::mobile::preferred_lan_address);
         let mac_id = unpeel_core::relay_uplink::ensure_host_id()?;
+        let public_endpoint = match (public_host, public_port) {
+            (Some(public_host), Some(public_port)) => {
+                let public_host = public_host.trim();
+                if public_host.is_empty() {
+                    None
+                } else {
+                    Some(format!("http://{public_host}:{public_port}/mobile"))
+                }
+            }
+            _ => None,
+        };
         let (code, _) = self
             .pairing
-            .begin(&host, pairing_port, &mac_id)
+            .begin_with_public(&host, pairing_port, &mac_id, public_endpoint.as_deref())
             .ok_or("could not open a pairing window")?;
         self.pairing_completion_recorded = false;
         Ok(serde_json::json!({ "code": code, "status": "active" }))

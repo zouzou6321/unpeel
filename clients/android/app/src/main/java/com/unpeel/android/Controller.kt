@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -17,18 +18,25 @@ import com.unpeel.controller.PairingCode
 import com.unpeel.controller.PairingCrypto
 import com.unpeel.controller.acceptPairingResponse
 import com.unpeel.controller.TerminalInput
+import com.unpeel.controller.TerminalOutputBinary
+import com.unpeel.controller.TerminalOutputFrames
+import com.unpeel.controller.TerminalOutputText
 import com.unpeel.controller.TerminalQueryFilter
 import com.unpeel.controller.b64d
 import com.unpeel.controller.sha256Hex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -48,6 +56,7 @@ data class SavedHost(
     val relayToken: String,
     val e2eKeyB64: String,
     val serverVersion: String?,
+    val publicEndpoint: String? = null,
 )
 
 private const val SESSION_CACHE_LIMIT = 3
@@ -82,6 +91,10 @@ class Controller(context: Context) {
     private var fitRejected = false
     var usingRelay by mutableStateOf(false)
         private set
+    /** The public address is the live dial. A later LAN probe switches back. */
+    private var usingPublic = false
+    /** Address the current direct link actually dialed. */
+    private var dialEndpoint: String? = null
 
     var hosts by mutableStateOf(loadHosts())
         private set
@@ -163,6 +176,8 @@ class Controller(context: Context) {
                     relayToken = result.getJSONObject("relayCredentials").getString("relayToken"),
                     e2eKeyB64 = result.getJSONObject("relayCredentials").getString("e2eKeyB64"),
                     serverVersion = result.optString("serverVersion").ifEmpty { null },
+                    publicEndpoint = result.optString("publicEndpoint").ifEmpty { null }
+                        ?: payload.publicEndpoint,
                 )
                 hosts = (hosts.filterNot { it.macID == host.macID } + host)
                 saveHosts()
@@ -792,7 +807,7 @@ class Controller(context: Context) {
         pollJob = scope.launch {
             while (true) {
                 refreshOnce()
-                delay(2_000)
+                delay(if (usingPublic) 1_000 else 2_000)
             }
         }
     }
@@ -800,40 +815,113 @@ class Controller(context: Context) {
     private suspend fun refreshOnce() {
         val host = selectedHost ?: return
         try {
+            var switchedToLan = false
+            if (usingPublic && !host.publicEndpoint.isNullOrEmpty() && lanAnswers(host)) {
+                link = null
+                usingPublic = false
+                dialEndpoint = null
+                switchedToLan = true
+            }
             val body = connectedLink(host).get("bootstrap", timeoutMs = 8_000)
             snapshot = BootstrapJson.parse(body)
-            connection = if (usingRelay) "Link" else "局域网"
+            connection = when {
+                usingRelay -> "Link"
+                usingPublic -> "公网"
+                else -> pathLabel(dialEndpoint ?: host.endpoint)
+            }
             error = null
             snapshot?.remoteServerCertificateFingerprint?.let { pin ->
                 if (host.fingerprint != pin) updateFingerprint(host.macID, pin)
             }
+            if (switchedToLan) restartOutputOnActiveLink()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (caught: Exception) {
             link = null
+            usingPublic = false
+            dialEndpoint = null
             connection = caught.message ?: "连接中断"
         }
     }
 
-    private suspend fun connectedLink(host: SavedHost): HostLink {
-        link?.let { return it }
-        val direct = DirectLink(host.endpoint, host.authToken, host.fingerprint)
+    /** LAN bootstrap succeeded, so the next connection attempt should take it. */
+    private suspend fun lanAnswers(host: SavedHost): Boolean {
         return try {
-            direct.get("bootstrap", timeoutMs = 4_000)
-            usingRelay = false
-            direct.also { link = it }
+            DirectLink(host.endpoint, host.authToken, host.fingerprint)
+                .get("bootstrap", timeoutMs = 1_200)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
-            usingRelay = true
-            RelayLink(
-                relayUrl = host.relayURL,
-                macID = host.macID,
-                relayToken = host.relayToken,
-                e2eKey = b64d(host.e2eKeyB64),
-                deviceID = deviceId,
-                authToken = host.authToken,
-            ).also { link = it }
+            false
         }
     }
 
+    private fun restartOutputOnActiveLink() {
+        val sessionID = openSessionID ?: return
+        val offset = sessionCache.firstOrNull { it.id == sessionID }?.outputOffset
+        startOutput(sessionID, resumeOffset = offset)
+    }
+
+    private suspend fun connectedLink(host: SavedHost): HostLink {
+        link?.let { return it }
+        val lan = DirectLink(host.endpoint, host.authToken, host.fingerprint)
+        try {
+            lan.get("bootstrap", timeoutMs = if (host.publicEndpoint.isNullOrEmpty()) 4_000 else 1_500)
+            usingRelay = false
+            usingPublic = false
+            dialEndpoint = host.endpoint
+            return lan.also { link = it }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            val publicURL = host.publicEndpoint
+            if (!publicURL.isNullOrEmpty() && publicURL != host.endpoint) {
+                val pub = DirectLink(publicURL, host.authToken, host.fingerprint)
+                try {
+                    pub.get("bootstrap", timeoutMs = 4_000)
+                    usingRelay = false
+                    usingPublic = true
+                    dialEndpoint = publicURL
+                    return pub.also { link = it }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // The public address missed too. Link remains the last dial.
+                }
+            }
+        }
+        usingPublic = false
+        dialEndpoint = null
+        usingRelay = true
+        return RelayLink(
+            relayUrl = host.relayURL,
+            macID = host.macID,
+            relayToken = host.relayToken,
+            e2eKey = b64d(host.e2eKeyB64),
+            deviceID = deviceId,
+            authToken = host.authToken,
+        ).also { link = it }
+    }
+
     private fun link(): HostLink = link ?: throw HostException(0, "未连接")
+
+    private fun pathLabel(endpoint: String): String {
+        val host = runCatching { java.net.URI(endpoint).host }.getOrNull().orEmpty()
+        return if (isPrivateHost(host)) "局域网" else "公网"
+    }
+
+    private fun isPrivateHost(host: String): Boolean {
+        if (host == "localhost" || host.endsWith(".local")) return true
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+        val nums = parts.map { it.toIntOrNull() ?: return false }
+        return nums[0] == 10 ||
+            (nums[0] == 192 && nums[1] == 168) ||
+            (nums[0] == 172 && nums[1] in 16..31) ||
+            (nums[0] == 169 && nums[1] == 254) ||
+            nums[0] == 127
+    }
 
     private fun noteOpeningFrame(generation: Int) {
         if (generation != outputGeneration || !sessionPreparing) return
@@ -883,6 +971,255 @@ class Controller(context: Context) {
         return generation == outputGeneration
     }
 
+    private enum class SocketStream { Stop, Restart, Fallback }
+
+    private data class OutputSocketTarget(val url: String, val fingerprint: String?)
+
+    /**
+     * Direct remote-server socket, on a LAN address or a public one.
+     * This is not the Link tunnel: the phone dials `remoteServerPort` on the
+     * Mac's direct host. If that connect fails, output falls back to GET.
+     */
+    private fun outputSocketTarget(sessionID: String, offset: Long?): OutputSocketTarget? {
+        val host = selectedHost ?: return null
+        val port = snapshot?.remoteServerPort ?: return null
+        val endpoint = if (usingPublic) {
+            dialEndpoint ?: host.publicEndpoint ?: host.endpoint
+        } else {
+            snapshot?.directEndpoint ?: dialEndpoint ?: host.endpoint
+        }
+        val pin = snapshot?.remoteServerCertificateFingerprint ?: host.fingerprint
+        val url = TerminalOutputFrames.webSocketUrl(
+            endpoint = endpoint,
+            port = port,
+            sessionID = sessionID,
+            token = host.authToken,
+            offset = offset,
+        ) ?: return null
+        return OutputSocketTarget(url, pin)
+    }
+
+    /**
+     * The iOS output socket. A fresh subscribe asks the Host for the current
+     * screen, then keeps the journal that follows. A dropped socket returns
+     * [SocketStream.Fallback] and the HTTP long-poll takes that cursor.
+     */
+    private suspend fun streamOutputSocket(
+        target: OutputSocketTarget,
+        sessionID: String,
+        screen: HostTerminal,
+        slot: CachedSession?,
+        generation: Int,
+        queries: TerminalQueryFilter,
+        fresh: Boolean,
+    ): SocketStream {
+        val socket = TerminalOutputSocket(target.fingerprint)
+        try {
+            if (!socket.open(target.url)) return SocketStream.Fallback
+            val helloEvent = withTimeoutOrNull(10_000) { socket.receive() } ?: return SocketStream.Fallback
+            val helloText = (helloEvent as? TerminalOutputSocket.Event.Text)?.text ?: return SocketStream.Fallback
+            val hello = withContext(Dispatchers.Default) {
+                TerminalOutputFrames.parseText(helloText) as? TerminalOutputText.Hello
+            } ?: return SocketStream.Fallback
+            if (generation != outputGeneration || openSessionID != sessionID) return SocketStream.Stop
+            if (hello.sessionId != sessionID) return SocketStream.Fallback
+            if (!fresh && hello.cols != null && hello.cols != screen.columns) {
+                slot?.outputOffset = null
+                slot?.coherent = false
+                slot?.replayDone = false
+                return SocketStream.Restart
+            }
+            var pendingReset = fresh || hello.rebased ||
+                (slot?.outputOffset != null && hello.startOffset != slot.outputOffset)
+            if (pendingReset && !fresh) {
+                sessionPreparing = true
+                openingFrameReady = false
+                slot?.coherent = false
+            }
+            var expectBaseline = hello.snapshot && pendingReset
+            var held = if (pendingReset) null else slot?.outputOffset
+            while (openSessionID == sessionID && generation == outputGeneration && currentCoroutineContext().isActive) {
+                when (val event = socket.receive()) {
+                    TerminalOutputSocket.Event.End -> return SocketStream.Fallback
+                    is TerminalOutputSocket.Event.Text -> {
+                        when (val message = withContext(Dispatchers.Default) { TerminalOutputFrames.parseText(event.text) }) {
+                            is TerminalOutputText.Baseline -> {
+                                if (!expectBaseline) continue
+                                expectBaseline = false
+                                if (!applyBaseline(message, screen, slot, generation, queries)) return SocketStream.Stop
+                                pendingReset = false
+                                held = message.journalOffset
+                            }
+                            is TerminalOutputText.Error -> Log.i("Unpeel", "output websocket: ${message.message}")
+                            else -> Unit
+                        }
+                    }
+                    is TerminalOutputSocket.Event.Binary -> {
+                        val frame = withContext(Dispatchers.Default) {
+                            TerminalOutputFrames.parseBinary(event.bytes)
+                        } ?: return SocketStream.Fallback
+                        if (expectBaseline) expectBaseline = false
+                        val appended = appendOutputFrame(
+                            frame, hello, screen, slot, generation, queries, sessionID, pendingReset, held,
+                        )
+                        if (appended.stream != null) return appended.stream
+                        pendingReset = false
+                        held = appended.held
+                    }
+                }
+            }
+            return if (generation != outputGeneration || openSessionID != sessionID) {
+                SocketStream.Stop
+            } else {
+                SocketStream.Fallback
+            }
+        } catch (cancelled: CancellationException) {
+            if (currentCoroutineContext().isActive) return SocketStream.Fallback
+            throw cancelled
+        } catch (error: Exception) {
+            Log.i("Unpeel", "output websocket fell back to http", error)
+            return SocketStream.Fallback
+        } finally {
+            socket.close()
+        }
+    }
+
+    /** Reset the emulator and paint the Host's screen. The cursor is the journal offset, not the snapshot's length. */
+    private suspend fun applyBaseline(
+        baseline: TerminalOutputText.Baseline,
+        screen: HostTerminal,
+        slot: CachedSession?,
+        generation: Int,
+        queries: TerminalQueryFilter,
+    ): Boolean {
+        queries.reset()
+        screen.prepare(
+            baseline.cols.takeIf { it >= 2 } ?: screen.columns,
+            baseline.rows.takeIf { it >= 2 } ?: screen.rows,
+        )
+        val visible = withContext(Dispatchers.Default) { queries.strip(baseline.bytes) }
+        if (generation != outputGeneration) return false
+        slot?.coherent = false
+        if (visible.isNotEmpty() && !feedBytes(
+                visible,
+                live = false,
+                notify = true,
+                generation = generation,
+                hostSnapshot = true,
+            )
+        ) {
+            return false
+        }
+        slot?.outputOffset = baseline.journalOffset
+        slot?.replayDone = true
+        slot?.coherent = true
+        noteOpeningFrame(generation)
+        return generation == outputGeneration
+    }
+
+    private data class FrameAppend(val stream: SocketStream?, val held: Long?)
+
+    private suspend fun appendOutputFrame(
+        frame: TerminalOutputBinary,
+        hello: TerminalOutputText.Hello,
+        screen: HostTerminal,
+        slot: CachedSession?,
+        generation: Int,
+        queries: TerminalQueryFilter,
+        sessionID: String,
+        pendingReset: Boolean,
+        held: Long?,
+    ): FrameAppend {
+        var payload = frame.payload
+        var origin = frame.offset
+        if (!pendingReset && held != null) {
+            val end = frame.offset + frame.payload.size
+            if (end <= held) return FrameAppend(null, held)
+            if (frame.offset > held) {
+                if (!fillOutputGap(sessionID, held, frame.offset, slot, generation, queries)) {
+                    return FrameAppend(SocketStream.Fallback, slot?.outputOffset ?: held)
+                }
+                origin = frame.offset
+            } else {
+                val drop = (held - frame.offset).toInt()
+                if (drop >= payload.size) return FrameAppend(null, held)
+                if (drop > 0) payload = payload.copyOfRange(drop, payload.size)
+                origin = held
+            }
+        }
+        if (pendingReset) {
+            queries.reset()
+            screen.prepare(
+                (hello.cols ?: screen.columns).coerceIn(2, 300),
+                (hello.rows ?: screen.rows).coerceIn(2, 120),
+            )
+            val preamble = hello.modePreamble
+            if (preamble != null && !feedBytes(
+                    preamble,
+                    live = false,
+                    notify = payload.isEmpty(),
+                    generation = generation,
+                    hostSnapshot = true,
+                )
+            ) {
+                return FrameAppend(SocketStream.Stop, held)
+            }
+        }
+        val visible = withContext(Dispatchers.Default) { queries.strip(payload) }
+        if (generation != outputGeneration) return FrameAppend(SocketStream.Stop, held)
+        slot?.coherent = false
+        if (visible.isNotEmpty() && !feedBytes(visible, live = !pendingReset, notify = true, generation)) {
+            return FrameAppend(SocketStream.Stop, held)
+        }
+        val next = origin + payload.size
+        slot?.outputOffset = next
+        slot?.replayDone = true
+        slot?.coherent = true
+        noteOpeningFrame(generation)
+        return FrameAppend(null, next)
+    }
+
+    /** Journal bytes the socket skipped. Read only up to the live frame so it is not painted twice. */
+    private suspend fun fillOutputGap(
+        sessionID: String,
+        from: Long,
+        until: Long,
+        slot: CachedSession?,
+        generation: Int,
+        queries: TerminalQueryFilter,
+    ): Boolean {
+        var cursor = from
+        while (cursor < until && generation == outputGeneration) {
+            val body = try {
+                link().get(
+                    "output",
+                    mapOf(
+                        "session_id" to sessionID,
+                        "offset" to cursor.toString(),
+                        "limit" to (until - cursor).coerceAtMost(524_288L).toString(),
+                        "wait_ms" to "0",
+                    ),
+                    timeoutMs = 10_000,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return false
+            }
+            if (generation != outputGeneration) return false
+            val chunk = withContext(Dispatchers.Default) { BootstrapJson.outputChunk(body) }
+            if (chunk.truncated || chunk.offset != cursor || chunk.data.isEmpty()) return false
+            val take = (until - chunk.offset).toInt().coerceAtMost(chunk.data.size)
+            val piece = if (take == chunk.data.size) chunk.data else chunk.data.copyOfRange(0, take.coerceAtLeast(0))
+            val visible = withContext(Dispatchers.Default) { queries.strip(piece) }
+            if (generation != outputGeneration) return false
+            if (visible.isNotEmpty() && !feedBytes(visible, live = true, notify = true, generation)) return false
+            cursor = chunk.offset + take
+            slot?.outputOffset = cursor
+        }
+        return cursor == until && generation == outputGeneration
+    }
+
     private fun startOutput(
         sessionID: String,
         columns: Int? = null,
@@ -910,8 +1247,33 @@ class Controller(context: Context) {
         outputJob = scope.launch {
             var offset: Long? = if (resume) resumeOffset else null
             var sized = preset || resume
+            var replaceWithSnapshot = !resume
+            var socketGaveUp = false
             val queries = TerminalQueryFilter()
             while (openSessionID == sessionID && generation == outputGeneration) {
+                if (!socketGaveUp) {
+                    val target = outputSocketTarget(sessionID, if (replaceWithSnapshot) null else offset)
+                    if (target != null) {
+                        when (streamOutputSocket(target, sessionID, screen, slot, generation, queries, replaceWithSnapshot)) {
+                            SocketStream.Stop -> return@launch
+                            SocketStream.Restart -> {
+                                replaceWithSnapshot = true
+                                offset = null
+                                sized = false
+                                continue
+                            }
+                            SocketStream.Fallback -> {
+                                socketGaveUp = true
+                                if (slot?.replayDone == true) {
+                                    replaceWithSnapshot = false
+                                    offset = slot.outputOffset ?: offset
+                                    sized = true
+                                }
+                            }
+                        }
+                        if (generation != outputGeneration || openSessionID != sessionID) return@launch
+                    }
+                }
                 try {
                     val active = link()
                     if (!sized) {
@@ -979,8 +1341,11 @@ class Controller(context: Context) {
                     slot?.coherent = true
                     noteOpeningFrame(generation)
                     offset = chunk.nextOffset
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (_: Exception) {
                     if (generation != outputGeneration) return@launch
+                    socketGaveUp = false
                     link = null
                     delay(1_000)
                 }
@@ -1015,6 +1380,21 @@ class Controller(context: Context) {
     }
 
     private fun exchange(payload: com.unpeel.controller.PairingPayload): JSONObject {
+        val dials = LinkedHashSet<String>()
+        dials.add(payload.endpoint)
+        payload.publicEndpoint?.let { dials.add(it) }
+        var last: java.io.IOException? = null
+        for (dial in dials) {
+            try {
+                return exchangeAt(payload, dial)
+            } catch (error: java.io.IOException) {
+                last = error
+            }
+        }
+        throw last ?: java.io.IOException("配对失败")
+    }
+
+    private fun exchangeAt(payload: com.unpeel.controller.PairingPayload, dial: String): JSONObject {
         val identity = DeviceIdentity(
             id = deviceId,
             name = Build.MODEL ?: "Android",
@@ -1038,10 +1418,13 @@ class Controller(context: Context) {
             payload.endpoint,
             PairingCrypto.REQUEST,
         )
-        val http = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
+        val http = OkHttpClient.Builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
         val call = http.newCall(
             Request.Builder()
-                .url(payload.endpoint.trimEnd('/') + "/pair")
+                .url(dial.trimEnd('/') + "/pair")
                 .post(envelope.toString().toRequestBody("application/json".toMediaType()))
                 .build(),
         )
@@ -1084,6 +1467,7 @@ class Controller(context: Context) {
                 relayToken = item.optString("relayToken"),
                 e2eKeyB64 = item.optString("e2eKeyB64"),
                 serverVersion = item.optString("serverVersion").ifEmpty { null },
+                publicEndpoint = item.optString("publicEndpoint").ifEmpty { null },
             )
         }
     }
@@ -1101,7 +1485,8 @@ class Controller(context: Context) {
                     .put("relayURL", host.relayURL)
                     .put("relayToken", host.relayToken)
                     .put("e2eKeyB64", host.e2eKeyB64)
-                    .put("serverVersion", host.serverVersion),
+                    .put("serverVersion", host.serverVersion)
+                    .put("publicEndpoint", host.publicEndpoint ?: JSONObject.NULL),
             )
         }
         prefs.edit().putString("hosts", array.toString()).apply()

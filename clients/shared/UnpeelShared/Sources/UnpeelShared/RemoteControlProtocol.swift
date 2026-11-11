@@ -102,6 +102,9 @@ public struct RemotePairingPayload: Codable, Equatable, Sendable {
     public let macID: String
     public let macName: String
     public let endpoint: URL
+    /// Second dial address. Present when the code offers both the local
+    /// network and a configured public address. Nil for a single-path code.
+    public let publicEndpoint: URL?
     public let token: String
     public let certificateFingerprint: String?
     public let expiresAtUnixMs: Int64
@@ -111,6 +114,7 @@ public struct RemotePairingPayload: Codable, Equatable, Sendable {
         macID: String,
         macName: String,
         endpoint: URL,
+        publicEndpoint: URL? = nil,
         token: String,
         certificateFingerprint: String? = nil,
         expiresAtUnixMs: Int64
@@ -119,9 +123,23 @@ public struct RemotePairingPayload: Codable, Equatable, Sendable {
         self.macID = macID
         self.macName = macName
         self.endpoint = endpoint
+        self.publicEndpoint = publicEndpoint
         self.token = token
         self.certificateFingerprint = certificateFingerprint
         self.expiresAtUnixMs = expiresAtUnixMs
+    }
+
+    public func withPublicEndpoint(_ url: URL?) -> RemotePairingPayload {
+        RemotePairingPayload(
+            protocolVersion: protocolVersion,
+            macID: macID,
+            macName: macName,
+            endpoint: endpoint,
+            publicEndpoint: url,
+            token: token,
+            certificateFingerprint: certificateFingerprint,
+            expiresAtUnixMs: expiresAtUnixMs
+        )
     }
 }
 
@@ -130,6 +148,8 @@ public struct RemotePairingPayload: Codable, Equatable, Sendable {
 /// The compact form is
 /// `UNPEEL:<version>:<host>:<port>:<macID>:<token>:<expiresUnixSeconds>`
 /// with an optional eighth `<proxyID>` field for controller-assisted pairing.
+/// A configured public address is not added here: the shipped iOS scanner
+/// accepts only this shape, and learns nothing it does not already decode.
 /// — kept to the QR alphanumeric charset (digits, uppercase letters, `:`, `.`)
 /// so the code stays small and coarse enough to scan instantly; the JSON form
 /// of `RemotePairingPayload` is ~4x the bytes and produced dense, slow-to-lock

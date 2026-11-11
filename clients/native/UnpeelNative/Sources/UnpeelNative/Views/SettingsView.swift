@@ -3139,7 +3139,6 @@ struct RemoteSettingsPanel: View {
             }
 
             Button {
-                store.beginScopedWorkspacePairing()
                 workspaceSharePresented = true
             } label: {
                 Label(L10n.format("Pair a Device with %@…", scope.name), systemImage: "plus")
@@ -3388,6 +3387,8 @@ struct ShareThisMacSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var now = Date()
     @State private var cliCommandCopied = false
+    @State private var routeSaved = false
+    @State private var savedRoute: PairingRoute = .lan
 
     init(store: UnpeelStore, usesWorkspaceLanguage: Bool = false) {
         self.store = store
@@ -3462,13 +3463,20 @@ struct ShareThisMacSheet: View {
                             .font(.system(size: 12))
                             .foregroundStyle(Theme.mutedForeground)
                         Button(L10n.t("Pair Another Controller")) {
-                            store.beginHostPairing()
+                            routeSaved = false
+                            store.cancelHostPairing()
                         }
                         .controlSize(.small)
                     }
                     Spacer()
                 }
                 .padding(.vertical, 12)
+            } else if !routeSaved {
+                PairingRouteForm { route in
+                    savedRoute = route
+                    routeSaved = true
+                    store.beginHostPairing(route: route)
+                }
             } else {
                 HStack(alignment: .top, spacing: 18) {
                     PairingQRCodeView(payload: store.hostPairingCode)
@@ -3492,7 +3500,13 @@ struct ShareThisMacSheet: View {
 
                         HStack(spacing: 8) {
                             Button(store.hostPairingPayload == nil ? L10n.t("Generate QR Code") : L10n.t("Refresh QR Code")) {
-                                store.beginHostPairing()
+                                store.beginHostPairing(route: savedRoute)
+                            }
+                            .controlSize(.small)
+
+                            Button(L10n.t("Change connection")) {
+                                routeSaved = false
+                                store.cancelHostPairing()
                             }
                             .controlSize(.small)
 
@@ -3549,13 +3563,12 @@ struct ShareThisMacSheet: View {
         }
         .padding(24)
         .frame(width: 520)
-        .onAppear { store.beginHostPairing() }
         // Live countdown, and never leave an expired QR on screen — an
         // expired code silently stops scanning, so re-mint at zero.
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { tick in
             now = tick
-            if let expiry, expiry <= tick, !store.hostPairingCompleted {
-                store.beginHostPairing()
+            if routeSaved, let expiry, expiry <= tick, !store.hostPairingCompleted {
+                store.beginHostPairing(route: savedRoute)
             }
         }
     }
@@ -3578,6 +3591,8 @@ struct ShareWorkspaceSheet: View {
     /// exchange itself happens in the sibling instance).
     @State private var baselineDeviceIDs: Set<String>?
     @State private var pairedDeviceName: String?
+    @State private var routeSaved = false
+    @State private var savedRoute: PairingRoute = .lan
 
     private var expiry: Date? {
         guard let payload = store.scopedWorkspacePairingPayload else { return nil }
@@ -3605,14 +3620,25 @@ struct ShareWorkspaceSheet: View {
                     .keyboardShortcut(.cancelAction)
             }
 
-            if let error = store.scopedWorkspacePairingError {
+            if !routeSaved {
+                PairingRouteForm { route in
+                    savedRoute = route
+                    routeSaved = true
+                    store.beginScopedWorkspacePairing(route: route)
+                }
+            } else if let error = store.scopedWorkspacePairingError {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(error)
                         .font(.system(size: 13))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(L10n.t("Try Again")) {
-                        store.beginScopedWorkspacePairing()
+                        store.beginScopedWorkspacePairing(route: savedRoute)
+                    }
+                    .controlSize(.small)
+                    Button(L10n.t("Change connection")) {
+                        routeSaved = false
+                        store.cancelScopedWorkspacePairing()
                     }
                     .controlSize(.small)
                 }
@@ -3630,7 +3656,8 @@ struct ShareWorkspaceSheet: View {
                         Button(L10n.t("Pair Another Device")) {
                             self.pairedDeviceName = nil
                             baselineDeviceIDs = currentDeviceIDs()
-                            store.beginScopedWorkspacePairing()
+                            routeSaved = false
+                            store.cancelScopedWorkspacePairing()
                         }
                         .controlSize(.small)
                     }
@@ -3668,7 +3695,13 @@ struct ShareWorkspaceSheet: View {
 
                         HStack(spacing: 8) {
                             Button(L10n.t("Refresh QR Code")) {
-                                store.beginScopedWorkspacePairing()
+                                store.beginScopedWorkspacePairing(route: savedRoute)
+                            }
+                            .controlSize(.small)
+
+                            Button(L10n.t("Change connection")) {
+                                routeSaved = false
+                                store.cancelScopedWorkspacePairing()
                             }
                             .controlSize(.small)
 
@@ -3699,8 +3732,8 @@ struct ShareWorkspaceSheet: View {
                 pairedDeviceName = newDevice.name
                 return
             }
-            if let expiry, expiry <= tick, pairedDeviceName == nil {
-                store.beginScopedWorkspacePairing()
+            if routeSaved, let expiry, expiry <= tick, pairedDeviceName == nil {
+                store.beginScopedWorkspacePairing(route: savedRoute)
             }
         }
     }
