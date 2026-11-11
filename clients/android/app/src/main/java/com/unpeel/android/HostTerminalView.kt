@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.text.InputType
 import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -15,6 +16,7 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import com.termux.terminal.TerminalEmulator
 import com.termux.view.TerminalMetrics
 import com.termux.view.TerminalRenderer
@@ -54,6 +56,8 @@ class HostTerminalView(
     private var pendingRemoteRows = 0
     private var flingVelocity = 0f
     private var selecting = false
+    /** Long-press copies the selection once the finger lifts, after a drag can extend it. */
+    private var copyOnUp = false
     private var selX1 = -1
     private var selY1 = -1
     private var selX2 = -1
@@ -63,7 +67,7 @@ class HostTerminalView(
     private val frameListener: () -> Unit = {
         // The host picture already includes the rows we asked for.
         pendingRemoteRows = 0
-        if (terminal.emulator.isMouseTrackingActive() || terminal.emulator.isAlternateBufferActive()) {
+        if (terminal.emulator.isMouseTrackingActive()) {
             scrollRemainder = 0f
         }
         noteEmulator(terminal.emulator)
@@ -74,7 +78,7 @@ class HostTerminalView(
     private val flingTick = object : Runnable {
         override fun run() {
             val emulator = terminal.emulator
-            if (flingVelocity == 0f || emulator.isMouseTrackingActive() || emulator.isAlternateBufferActive()) {
+            if (flingVelocity == 0f || emulator.isMouseTrackingActive()) {
                 flingVelocity = 0f
                 return
             }
@@ -124,18 +128,12 @@ class HostTerminalView(
             val emulator = terminal.emulator
             if (tapTargetsCursor(emulator, e) && pasteClipboard()) {
                 clearSelection()
+                copyOnUp = false
                 return
             }
-            val cell = cellAt(e.x, e.y) ?: return
-            selX1 = cell.first
-            selY1 = cell.second
-            selX2 = cell.first
-            selY2 = cell.second
-            if (!selecting) {
-                selecting = true
-                onSelectionChanged?.invoke(true)
-            }
-            invalidate()
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            if (!selecting || !selectionContains(e)) selectWord(e)
+            copyOnUp = selecting
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
@@ -164,14 +162,13 @@ class HostTerminalView(
             if (selecting || cellHeight <= 0) return false
             val emulator = terminal.emulator
             // velocityY is downward. distanceY (and scrollRemainder) grow when the finger moves up.
-            if (emulator.isMouseTrackingActive() || emulator.isAlternateBufferActive()) {
+            if (emulator.isMouseTrackingActive()) {
                 val lines = (-velocityY / cellHeight / 6f).toInt()
                 if (lines == 0) return false
                 val steps = min(kotlin.math.abs(lines), 8)
                 val applied = if (lines > 0) steps else -steps
                 pendingRemoteRows += applied
-                if (emulator.isMouseTrackingActive()) sendWheel(emulator, e2, applied > 0, steps)
-                else sendAlternateScroll(emulator, applied > 0, steps)
+                sendWheel(emulator, e2, applied > 0, steps)
                 invalidate()
                 return true
             }
@@ -212,13 +209,13 @@ class HostTerminalView(
         }.getOrDefault("")
     }
 
-    /** Copies the selection onto the system clipboard and clears it. */
-    fun copySelection(): Boolean {
+    /** Copies the selection onto the system clipboard. */
+    fun copySelection(clear: Boolean = true): Boolean {
         val text = selectedText()
         if (text.isEmpty()) return false
         val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return false
         clipboard.setPrimaryClip(ClipData.newPlainText("unpeel", text))
-        clearSelection()
+        if (clear) clearSelection()
         return true
     }
 
@@ -254,7 +251,9 @@ class HostTerminalView(
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         // No password variation: that flag is what makes Android open the
         // secure keyboard and hide dictation, emoji, and a normal IME.
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or
             EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN
@@ -337,8 +336,19 @@ class HostTerminalView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             parent?.requestDisallowInterceptTouchEvent(true)
+            copyOnUp = false
         }
         gesture.onTouchEvent(event)
+        if (copyOnUp && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
+            copyOnUp = false
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                if (copySelection(clear = false)) {
+                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "没有可复制的文字", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
         return true
     }
 
@@ -380,18 +390,16 @@ class HostTerminalView(
         if (cellHeight <= 0) return
         val lines = (scrollRemainder / cellHeight).toInt()
         if (lines == 0) return
-        val remote = emulator.isMouseTrackingActive() || emulator.isAlternateBufferActive()
+        val remote = emulator.isMouseTrackingActive()
         val steps = if (remote) min(kotlin.math.abs(lines), 24) else kotlin.math.abs(lines)
         val applied = if (lines > 0) steps else -steps
         scrollRemainder -= applied * cellHeight
         when {
+            // Cursor keys are not a scroll gesture. Sending them walks shell
+            // history and drops an old command into the prompt.
             emulator.isMouseTrackingActive() && event != null -> {
                 pendingRemoteRows += applied
                 sendWheel(emulator, event, applied > 0, steps)
-            }
-            emulator.isAlternateBufferActive() -> {
-                pendingRemoteRows += applied
-                sendAlternateScroll(emulator, applied > 0, steps)
             }
             else -> {
                 offsetRows = (offsetRows - applied).coerceIn(0, maxOffset(emulator))
@@ -419,7 +427,7 @@ class HostTerminalView(
     /** topRow for the renderer, and the Y translation that puts that row in view. */
     private fun place(emulator: TerminalEmulator): Pair<Int, Int> {
         clampOffset(emulator)
-        val remote = emulator.isMouseTrackingActive() || emulator.isAlternateBufferActive()
+        val remote = emulator.isMouseTrackingActive()
         if (!remote) {
             if (offsetRows == 0 && scrollRemainder > 0f) scrollRemainder = 0f
             if (offsetRows == maxOffset(emulator) && scrollRemainder < 0f) scrollRemainder = 0f
@@ -472,16 +480,6 @@ class HostTerminalView(
         return kotlin.math.abs(cell.second - emulator.cursorRow) <= 1
     }
 
-    /** Finger moving up (`towardBottom`) reveals newer rows. */
-    private fun sendAlternateScroll(emulator: TerminalEmulator, towardBottom: Boolean, steps: Int) {
-        val key = if (emulator.isCursorKeysApplicationMode()) {
-            if (towardBottom) "\u001bOB" else "\u001bOA"
-        } else {
-            if (towardBottom) "\u001b[B" else "\u001b[A"
-        }
-        onText?.invoke(key.repeat(steps))
-    }
-
     private fun sendWheel(emulator: TerminalEmulator, event: MotionEvent, towardBottom: Boolean, steps: Int) {
         val cell = cellAt(event.x, event.y)
         val column = ((cell?.first ?: 0) + 1).coerceIn(1, emulator.mColumns)
@@ -531,6 +529,47 @@ class HostTerminalView(
         return col to (placed.first + localRow)
     }
 
+    /** Selects the word under the finger, or the whole line when the cell is blank. */
+    private fun selectWord(event: MotionEvent) {
+        val cell = cellAt(event.x, event.y) ?: return
+        val row = cell.second
+        val cols = terminal.emulator.mColumns
+        val col = cell.first.coerceIn(0, cols - 1)
+        fun occupied(column: Int): Boolean {
+            val text = terminal.emulator.getSelectedText(column, row, column, row)
+            return text.isNotEmpty() && !text[0].isWhitespace()
+        }
+        var start = col
+        var end = col
+        if (occupied(col)) {
+            while (start > 0 && occupied(start - 1)) start--
+            while (end < cols - 1 && occupied(end + 1)) end++
+        } else {
+            start = 0
+            end = cols - 1
+        }
+        selX1 = start
+        selY1 = row
+        selX2 = end
+        selY2 = row
+        if (!selecting) {
+            selecting = true
+            onSelectionChanged?.invoke(true)
+        }
+        invalidate()
+    }
+
+    private fun selectionContains(event: MotionEvent): Boolean {
+        val args = selectionArgs() ?: return false
+        val cell = cellAt(event.x, event.y) ?: return false
+        val row = cell.second
+        val col = cell.first
+        if (row < args[0] || row > args[1]) return false
+        val startCol = if (row == args[0]) args[2] else 0
+        val endCol = if (row == args[1]) args[3] else terminal.emulator.mColumns - 1
+        return col in startCol..endCol
+    }
+
     /** y1, y2, x1, x2 in emulator coordinates, ordered. */
     private fun selectionArgs(): IntArray? {
         if (!selecting) return null
@@ -547,30 +586,40 @@ class HostTerminalView(
     }
 }
 
-/** Forwards a finished commit. Composing text stays here until `commitText`. */
+/**
+ * Composing text stays here until the IME finishes it. A keyboard that
+ * holds a whole English word must still deliver that word when Enter
+ * arrives, instead of dropping the composition.
+ */
 private class TerminalInputConnection(private val terminal: HostTerminalView) : BaseInputConnection(terminal, false) {
-    private var composingLength = 0
+    private var composing = ""
 
     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-        composingLength = 0
         val raw = text?.toString().orEmpty()
+        val pending = composing
+        composing = ""
+        // Enter that only replaces the composition still has to send the word.
+        if (pending.isNotEmpty() && raw.all { it == '\n' || it == '\r' }) terminal.emitCommitted(pending)
         if (raw.isNotEmpty()) terminal.emitCommitted(raw)
         return true
     }
 
     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-        composingLength = text?.length ?: 0
+        composing = text?.toString().orEmpty()
         return true
     }
 
     override fun finishComposingText(): Boolean {
-        composingLength = 0
+        val pending = composing
+        composing = ""
+        if (pending.isNotEmpty()) terminal.emitCommitted(pending)
         return true
     }
 
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-        if (composingLength > 0) {
-            composingLength = (composingLength - beforeLength).coerceAtLeast(0)
+        if (composing.isNotEmpty()) {
+            val drop = beforeLength.coerceIn(0, composing.length)
+            composing = composing.dropLast(drop)
             return true
         }
         val event = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
@@ -582,7 +631,17 @@ private class TerminalInputConnection(private val terminal: HostTerminalView) : 
         deleteSurroundingText(beforeLength, afterLength)
 
     override fun sendKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) terminal.handleTerminalKey(event.keyCode, event)
+        if (event.action != KeyEvent.ACTION_DOWN) return true
+        if (composing.isNotEmpty() && (event.keyCode == KeyEvent.KEYCODE_DEL || event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL)) {
+            composing = composing.dropLast(1)
+            return true
+        }
+        if (composing.isNotEmpty()) {
+            val pending = composing
+            composing = ""
+            terminal.emitCommitted(pending)
+        }
+        terminal.handleTerminalKey(event.keyCode, event)
         return true
     }
 

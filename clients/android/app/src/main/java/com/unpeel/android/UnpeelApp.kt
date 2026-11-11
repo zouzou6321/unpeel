@@ -87,6 +87,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -566,6 +567,7 @@ private fun ColumnScope.TerminalGrid(
             Row(
                 Modifier
                     .align(Alignment.TopCenter)
+                    .zIndex(2f)
                     .padding(8.dp)
                     .background(Color(0xF01A1B1D), RoundedCornerShape(18.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp)),
