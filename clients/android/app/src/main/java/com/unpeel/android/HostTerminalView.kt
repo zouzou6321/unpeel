@@ -16,7 +16,6 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import com.termux.terminal.TerminalEmulator
 import com.termux.view.TerminalMetrics
 import com.termux.view.TerminalRenderer
@@ -56,8 +55,6 @@ class HostTerminalView(
     private var pendingRemoteRows = 0
     private var flingVelocity = 0f
     private var selecting = false
-    /** Long-press copies the selection once the finger lifts, after a drag can extend it. */
-    private var copyOnUp = false
     private var selX1 = -1
     private var selY1 = -1
     private var selX2 = -1
@@ -128,12 +125,10 @@ class HostTerminalView(
             val emulator = terminal.emulator
             if (tapTargetsCursor(emulator, e) && pasteClipboard()) {
                 clearSelection()
-                copyOnUp = false
                 return
             }
             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             if (!selecting || !selectionContains(e)) selectWord(e)
-            copyOnUp = selecting
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
@@ -170,6 +165,14 @@ class HostTerminalView(
                 pendingRemoteRows += applied
                 sendWheel(emulator, e2, applied > 0, steps)
                 invalidate()
+                return true
+            }
+            // A full-screen program keeps its own transcript. Page keys scroll
+            // that transcript. Cursor keys do not: those recall shell history.
+            if (emulator.isAlternateBufferActive()) {
+                val lines = (-velocityY / cellHeight / 6f).toInt()
+                if (lines == 0) return false
+                sendPageScroll(lines > 0, min(kotlin.math.abs(lines), 4))
                 return true
             }
             flingVelocity = -velocityY
@@ -336,17 +339,16 @@ class HostTerminalView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             parent?.requestDisallowInterceptTouchEvent(true)
-            copyOnUp = false
         }
         gesture.onTouchEvent(event)
-        if (copyOnUp && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
-            copyOnUp = false
-            if (event.actionMasked == MotionEvent.ACTION_UP) {
-                if (copySelection(clear = false)) {
-                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "没有可复制的文字", Toast.LENGTH_SHORT).show()
-                }
+        // GestureDetector does not deliver a drag that starts after the
+        // long-press timeout. Extend the selection here so it can cross lines.
+        if (selecting && event.actionMasked == MotionEvent.ACTION_MOVE) {
+            val cell = cellAt(event.x, event.y)
+            if (cell != null) {
+                selX2 = cell.first
+                selY2 = cell.second
+                invalidate()
             }
         }
         return true
@@ -400,6 +402,9 @@ class HostTerminalView(
             emulator.isMouseTrackingActive() && event != null -> {
                 pendingRemoteRows += applied
                 sendWheel(emulator, event, applied > 0, steps)
+            }
+            emulator.isAlternateBufferActive() && event != null -> {
+                sendPageScroll(applied > 0, min(steps, 4))
             }
             else -> {
                 offsetRows = (offsetRows - applied).coerceIn(0, maxOffset(emulator))
@@ -478,6 +483,12 @@ class HostTerminalView(
     private fun tapTargetsCursor(emulator: TerminalEmulator, event: MotionEvent): Boolean {
         val cell = cellAt(event.x, event.y) ?: return false
         return kotlin.math.abs(cell.second - emulator.cursorRow) <= 1
+    }
+
+    /** Finger moving up (`towardBottom`) reveals newer rows of a full-screen program. */
+    private fun sendPageScroll(towardBottom: Boolean, steps: Int) {
+        val key = if (towardBottom) "\u001b[6~" else "\u001b[5~"
+        onText?.invoke(key.repeat(steps.coerceAtLeast(1)))
     }
 
     private fun sendWheel(emulator: TerminalEmulator, event: MotionEvent, towardBottom: Boolean, steps: Int) {

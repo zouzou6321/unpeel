@@ -86,6 +86,18 @@ class HostTerminal(
         onFrame?.invoke()
     }
 
+    /**
+     * Reflow the current screen to a new grid. Does not replay the journal,
+     * so a row change cannot paint a second copy of the same frame.
+     */
+    fun resizeGrid(columns: Int, rows: Int) {
+        val cols = columns.coerceIn(2, 300)
+        val lines = rows.coerceIn(2, 120)
+        if (cols == emulator.mColumns && lines == emulator.mRows) return
+        emulator.resize(cols, lines, cellWidth, cellHeight)
+        onFrame?.invoke()
+    }
+
     fun feed(bytes: ByteArray, live: Boolean) {
         if (bytes.isEmpty()) return
         this.live = live

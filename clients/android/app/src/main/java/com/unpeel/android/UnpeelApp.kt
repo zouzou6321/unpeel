@@ -581,13 +581,19 @@ private fun ColumnScope.TerminalGrid(
     }
 }
 
-/** Columns and rows that letterbox the Host PTY to this terminal box. Null until the box is real. */
+/**
+ * Columns and rows that letterbox the Host PTY to this terminal box.
+ * Null until the box can hold a real phone grid. A first layout pass of a
+ * few dozen pixels must not become the PTY width: at two columns the
+ * program wraps one glyph per line, and that wrap stays in the scrollback.
+ */
 internal fun phoneFitGrid(widthPx: Int, heightPx: Int, cellW: Float, cellH: Float, topPadPx: Float): Pair<Int, Int>? {
     val innerH = heightPx - topPadPx
-    if (widthPx < 48 || innerH < 48f || cellW <= 0f || cellH <= 0f) return null
-    val columns = (widthPx / cellW).toInt().coerceIn(2, 300)
-    val rows = (innerH / cellH).toInt().coerceIn(2, 120)
-    return columns to rows
+    if (cellW <= 0f || cellH <= 0f) return null
+    val columns = (widthPx / cellW).toInt()
+    val rows = (innerH / cellH).toInt()
+    if (columns < 20 || rows < 8) return null
+    return columns.coerceAtMost(300) to rows.coerceAtMost(120)
 }
 
 @Composable

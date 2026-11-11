@@ -56,6 +56,8 @@ class Controller(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pollJob: Job? = null
     private var outputJob: Job? = null
+    /** Bumped every time the output loop restarts, so a cancelled loop cannot paint over the new one. */
+    private var outputGeneration = 0
     private var link: HostLink? = null
     private var phoneFitGeneration = 0
     private var phoneFitSession: String? = null
@@ -287,8 +289,8 @@ class Controller(context: Context) {
     private fun fitPhone(columns: Int, rows: Int, force: Boolean) {
         val sessionID = openSessionID ?: return
         val active = link ?: return
-        val cols = columns.coerceIn(2, 300)
-        val lines = rows.coerceIn(2, 120)
+        val cols = columns.coerceIn(20, 300)
+        val lines = rows.coerceIn(8, 120)
         if (!force && phoneFitSession == sessionID && phoneFitColumns == cols && phoneFitRows == lines) return
         val generation = phoneFitGeneration
         scope.launch {
@@ -316,7 +318,14 @@ class Controller(context: Context) {
                 phoneFitSession = sessionID
                 phoneFitColumns = cols
                 phoneFitRows = lines
-                startOutput(sessionID, cols, lines)
+                // Replaying the journal on a row-only change paints the same
+                // frame twice and leaves the Grok screen as a short, miscolored
+                // block. A new column count has to replay; rows just reflow.
+                if (terminal.columns != cols) {
+                    startOutput(sessionID, cols, lines)
+                } else {
+                    terminal.resizeGrid(cols, lines)
+                }
             }
         }
     }
@@ -734,6 +743,7 @@ class Controller(context: Context) {
 
     private fun startOutput(sessionID: String, columns: Int? = null, rows: Int? = null) {
         outputJob?.cancel()
+        val generation = ++outputGeneration
         if (columns != null && rows != null) {
             terminal.prepare(columns, rows)
         }
@@ -742,13 +752,14 @@ class Controller(context: Context) {
             var offset: Long? = null
             var sized = preset
             val queries = TerminalQueryFilter()
-            while (openSessionID == sessionID) {
+            while (openSessionID == sessionID && generation == outputGeneration) {
                 try {
                     val active = link()
                     if (!sized) {
                         val metrics = runCatching {
                             JSONObject(active.get("metrics", mapOf("session_id" to sessionID)))
                         }.getOrNull()
+                        if (generation != outputGeneration) return@launch
                         if (metrics != null) {
                             terminal.prepare(
                                 metrics.optInt("columns", 80).coerceIn(2, 300),
@@ -767,6 +778,7 @@ class Controller(context: Context) {
                     val chunk = BootstrapJson.outputChunk(
                         active.get("output", query, timeoutMs = if (offset == null) 10_000 else 14_000),
                     )
+                    if (generation != outputGeneration) return@launch
                     // A fresh tail, or a journal that moved under us, is a new
                     // screen. Queries are removed from every chunk: the Mac
                     // terminal already answered them.
@@ -780,6 +792,7 @@ class Controller(context: Context) {
                     if (visible.isNotEmpty()) terminal.feed(visible, live = !replay)
                     offset = chunk.nextOffset
                 } catch (_: Exception) {
+                    if (generation != outputGeneration) return@launch
                     link = null
                     delay(1_000)
                 }
