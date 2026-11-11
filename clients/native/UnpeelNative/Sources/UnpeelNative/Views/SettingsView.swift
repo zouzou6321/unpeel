@@ -3472,7 +3472,7 @@ struct ShareThisMacSheet: View {
                 }
                 .padding(.vertical, 12)
             } else if !routeSaved {
-                PairingRouteForm { route in
+                PairingRouteForm(home: LaunchConfig.unpeelDir) { route in
                     savedRoute = route
                     routeSaved = true
                     store.beginHostPairing(route: route)
@@ -3621,7 +3621,7 @@ struct ShareWorkspaceSheet: View {
             }
 
             if !routeSaved {
-                PairingRouteForm { route in
+                PairingRouteForm(home: URL(fileURLWithPath: home)) { route in
                     savedRoute = route
                     routeSaved = true
                     store.beginScopedWorkspacePairing(route: route)

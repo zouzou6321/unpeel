@@ -22,14 +22,20 @@ enum PairingPath: String, CaseIterable, Identifiable {
 /// service's own error back.
 struct PairingRouteForm: View {
     @ObservedObject private var localization = LocalizationStore.shared
+    /// Workspace home whose `serve.json` publishes the ports this Host is
+    /// listening on. The public port field is the forwarded port; these are
+    /// the local ports it has to reach.
+    var home: URL
     var onSave: (PairingRoute) -> Void
 
     @State private var path: PairingPath
     @State private var host: String
     @State private var portText: String
     @State private var reachability: Reachability = .idle
+    @State private var listen = HostListenPorts(pairing: nil, terminal: nil)
 
-    init(onSave: @escaping (PairingRoute) -> Void) {
+    init(home: URL, onSave: @escaping (PairingRoute) -> Void) {
+        self.home = home
         self.onSave = onSave
         let defaults = UserDefaults.standard
         _path = State(initialValue: PairingPath(rawValue: defaults.string(forKey: Keys.path) ?? "") ?? .lan)
@@ -65,12 +71,17 @@ struct PairingRouteForm: View {
                         .frame(width: 88)
                 }
 
+                Text(pairingListenText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.foreground)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Text(statusText)
                     .font(.system(size: 12))
                     .foregroundStyle(reachability == .reachable ? Color.green : (reachability == .unreachable ? Color.red : Theme.mutedForeground))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(L10n.t("The live terminal uses a second port. Until that port is forwarded, public connections fall back to ordinary fetching."))
+                Text(terminalListenText)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -84,6 +95,27 @@ struct PairingRouteForm: View {
             }
         }
         .task(id: probeKey) { await probe() }
+        .task(id: home.path) { listen = HostListenPorts.read(at: home) }
+    }
+
+    private var pairingListenText: String {
+        if let port = listen.pairing {
+            return L10n.format(
+                "This Mac's pairing service is listening on %d. Forward the public port to it.",
+                Int(port)
+            )
+        }
+        return L10n.t("This Mac's pairing service has not opened a port yet.")
+    }
+
+    private var terminalListenText: String {
+        if let port = listen.terminal {
+            return L10n.format(
+                "The live terminal is listening on %d. Forward that port as well, or a public connection falls back to ordinary fetching.",
+                Int(port)
+            )
+        }
+        return L10n.t("The live terminal uses a second port. Until that port is forwarded, public connections fall back to ordinary fetching.")
     }
 
     private var explanation: String {
@@ -189,6 +221,44 @@ struct PairingRouteForm: View {
         static let path = "unpeel.pairingRoute"
         static let host = "unpeel.publicPairingHost"
         static let port = "unpeel.publicPairingPort"
+    }
+}
+
+/// Ports this Host has open, read from its `serve.json`. `pairing` is the
+/// `/mobile` listener (`directPort`). `terminal` is the separate WebSocket
+/// listener (`terminalStreamer.port`).
+struct HostListenPorts: Equatable {
+    var pairing: UInt16?
+    var terminal: UInt16?
+
+    static func read(at home: URL) -> HostListenPorts {
+        let url = home.appendingPathComponent("serve.json")
+        guard let data = try? Data(contentsOf: url) else {
+            return HostListenPorts(pairing: nil, terminal: nil)
+        }
+        return decode(data)
+    }
+
+    static func decode(_ data: Data) -> HostListenPorts {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return HostListenPorts(pairing: nil, terminal: nil)
+        }
+        let streamer = json["terminalStreamer"] as? [String: Any]
+        return HostListenPorts(
+            pairing: port(json["directPort"]),
+            terminal: port(streamer?["port"])
+        )
+    }
+
+    private static func port(_ value: Any?) -> UInt16? {
+        switch value {
+        case let number as Int:
+            return UInt16(exactly: number)
+        case let number as NSNumber:
+            return UInt16(exactly: number.intValue)
+        default:
+            return nil
+        }
     }
 }
 

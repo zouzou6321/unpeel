@@ -101,6 +101,36 @@
         }
       }
     },
+    "This Mac's pairing service is listening on %d. Forward the public port to it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的配对服务正在监听 %d。公网端口要转发到这个端口。"
+          }
+        }
+      }
+    },
+    "This Mac's pairing service has not opened a port yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的配对服务还没有打开端口。"
+          }
+        }
+      }
+    },
+    "The live terminal is listening on %d. Forward that port as well, or a public connection falls back to ordinary fetching.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端实时通道正在监听 %d。这个端口也要转发，否则公网会退回普通拉取。"
+          }
+        }
+      }
+    },
     "Checking whether this Mac can open that address…": {
       "localizations": {
         "zh-Hans": {
