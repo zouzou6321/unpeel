@@ -35,6 +35,9 @@ class HostTerminal(
     var sawOutput: Boolean = false
         private set
 
+    /** Scrollback rows the view had parked when another session took the screen. */
+    var parkedScroll: Int = 0
+
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
             if (!live || count <= 0) return
@@ -116,12 +119,14 @@ class HostTerminal(
         onFrame?.invoke()
     }
 
-    fun feed(bytes: ByteArray, live: Boolean) {
+    fun feed(bytes: ByteArray, live: Boolean, notify: Boolean = true) {
         if (bytes.isEmpty()) return
         this.live = live
         emulator.append(bytes, bytes.size)
         sawOutput = true
-        onFrame?.invoke()
+        // A replay is sliced so the main thread can draw between pieces.
+        // Only the last piece of a chunk paints, so a half-parsed frame stays off screen.
+        if (notify) onFrame?.invoke()
     }
 
     fun updateCellSize(width: Int, height: Int) {

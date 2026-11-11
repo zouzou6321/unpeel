@@ -10,8 +10,12 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,6 +24,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -533,6 +538,7 @@ private fun ColumnScope.TerminalGrid(
     var surface by remember { mutableStateOf<HostTerminalView?>(null) }
     val openSession = controller.snapshot?.sessions?.firstOrNull { it.id == controller.openSessionID }
     val canvas = terminalCanvas(openSession?.terminalBackgroundHex)
+    val shownTerminal = controller.terminal
     LaunchedEffect(controller.openSessionID) {
         surface?.clearSelection()
         selecting = false
@@ -550,8 +556,6 @@ private fun ColumnScope.TerminalGrid(
     Box(
         Modifier
             .weight(1f)
-            .padding(horizontal = 8.dp)
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp))
             .background(Color(canvas)),
     ) {
         AndroidView(
@@ -578,9 +582,9 @@ private fun ColumnScope.TerminalGrid(
                     openSession?.command.orEmpty(),
                     openSession?.activeRuntimeID,
                 )
-                controller.terminal.applyCanvas(canvas)
+                shownTerminal.applyCanvas(canvas)
                 view.canvasColor = canvas
-                view.bind(controller.terminal)
+                view.bind(shownTerminal)
                 view.onText = { controller.sendRaw(it) }
                 view.controlArmed = controlArmed
                 view.onControlUsed = onControlUsed
@@ -612,6 +616,57 @@ private fun ColumnScope.TerminalGrid(
                 TerminalKey("▼") { surface?.menuKey("down")?.let(controller::sendRaw) }
                 TerminalKey("esc", 11) { surface?.menuKey("escape")?.let(controller::sendRaw) }
                 TerminalKey("⏎") { surface?.menuKey("enter")?.let(controller::sendRaw) }
+            }
+        }
+        if (controller.sessionPreparing) {
+            TerminalPrepareCover(canvas, Modifier.matchParentSize().zIndex(4f))
+        }
+    }
+}
+
+/**
+ * Same job as iOS `TerminalSkeletonView`: an opaque terminal-shaped cover
+ * until the first replay has painted. The caption is the part the shimmer
+ * alone does not say.
+ */
+@Composable
+private fun TerminalPrepareCover(canvas: Int, modifier: Modifier = Modifier) {
+    val pulse = rememberInfiniteTransition(label = "prepare")
+    val alpha by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "prepareAlpha",
+    )
+    val fractions = floatArrayOf(
+        0.82f, 0.58f, 0.71f, 0.36f, 0.88f, 0.52f,
+        0.28f, 0.64f, 0.47f, 0.76f, 0.41f, 0.60f,
+    )
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            .background(Color(canvas))
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            },
+    ) {
+        val lineWidth = (maxWidth - 64.dp).coerceAtLeast(0.dp)
+        Column(Modifier.padding(start = 32.dp, end = 32.dp, top = 22.dp).graphicsLayer { this.alpha = alpha }) {
+            Text("正在准备", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp)
+            Spacer(Modifier.height(18.dp))
+            fractions.forEach { fraction ->
+                Box(
+                    Modifier
+                        .padding(bottom = 13.dp)
+                        .width(lineWidth * fraction)
+                        .height(12.dp)
+                        .background(Color.White.copy(alpha = 0.07f)),
+                )
             }
         }
     }

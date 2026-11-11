@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,6 +51,9 @@ data class SavedHost(
     val serverVersion: String?,
 )
 
+private const val FEED_SLICE_BYTES = 64 * 1024
+private const val SESSION_CACHE_LIMIT = 3
+
 class Controller(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("unpeel", Context.MODE_PRIVATE)
@@ -64,8 +68,12 @@ class Controller(context: Context) {
     private var phoneFitColumns: Int? = null
     private var phoneFitRows: Int? = null
     private val phoneFitLock = Mutex()
-    /** Paste and the Enter that submits it must not be split by another write. */
-    private val inputLock = Mutex()
+    /** Keystrokes and wheel reports share one drain, in order. Bytes that arrive during a send leave together. */
+    private val writeLock = Any()
+    private val writeQueue = ArrayDeque<WriteBatch>()
+    private var writeDraining = false
+
+    private class WriteBatch(val sessionID: String, val data: StringBuilder)
     private var fitWatchJob: Job? = null
     private var galleryWatchJob: Job? = null
     private var galleryBaseline: Long? = null
@@ -87,19 +95,25 @@ class Controller(context: Context) {
         private set
     var openSessionID by mutableStateOf<String?>(null)
         private set
-    val terminal = HostTerminal(
-        replies = { bytes ->
-            val id = openSessionID ?: return@HostTerminal
-            val active = link ?: return@HostTerminal
-            val text = bytes.toString(Charsets.UTF_8)
-            if (text.isEmpty()) return@HostTerminal
-            scope.launch { postWrite(active, id, text) }
-        },
-        onCopy = { text ->
-            val clipboard = appContext.getSystemService(ClipboardManager::class.java) ?: return@HostTerminal
-            clipboard.setPrimaryClip(ClipData.newPlainText("unpeel", text))
-        },
+    /** Covers a session until its first phone-grid replay has painted. A cached session skips this. */
+    var sessionPreparing by mutableStateOf(false)
+        private set
+    /** The current opening replay has fed a chunk. A newer replay clears it. */
+    private var openingFrameReady = false
+    var terminal by mutableStateOf(newTerminal())
+        private set
+
+    private class CachedSession(
+        val id: String,
+        val terminal: HostTerminal,
+        var outputOffset: Long? = null,
+        var replayDone: Boolean = false,
+        /** False while a chunk is only partly fed, so the next open replays instead of doubling it. */
+        var coherent: Boolean = false,
     )
+
+    /** Newest at the end. Keeps the last painted screen and journal offset, same limit as iOS. */
+    private val sessionCache = ArrayDeque<CachedSession>()
     var busy by mutableStateOf(false)
         private set
     var error by mutableStateOf<String?>(null)
@@ -167,6 +181,7 @@ class Controller(context: Context) {
         fitWatchJob?.cancel()
         stopGalleryWatch()
         releasePhoneFit()
+        flushSessionCache()
         selectedMacID = macID
         prefs.edit().putString("selected", macID).apply()
         snapshot = null
@@ -179,6 +194,7 @@ class Controller(context: Context) {
             fitWatchJob?.cancel()
             stopGalleryWatch()
             releasePhoneFit()
+            flushSessionCache()
         }
         hosts = hosts.filterNot { it.macID == macID }
         saveHosts()
@@ -196,6 +212,52 @@ class Controller(context: Context) {
         }
     }
 
+    private fun newTerminal() = HostTerminal(
+        replies = { bytes ->
+            val id = openSessionID ?: return@HostTerminal
+            val active = link ?: return@HostTerminal
+            val text = bytes.toString(Charsets.UTF_8)
+            if (text.isEmpty()) return@HostTerminal
+            scope.launch { postWrite(active, id, text) }
+        },
+        onCopy = { text ->
+            val clipboard = appContext.getSystemService(ClipboardManager::class.java) ?: return@HostTerminal
+            clipboard.setPrimaryClip(ClipData.newPlainText("unpeel", text))
+        },
+    )
+
+    private fun rememberSession(id: String): CachedSession {
+        sessionCache.firstOrNull { it.id == id }?.let { hit ->
+            sessionCache.remove(hit)
+            sessionCache.addLast(hit)
+            return hit
+        }
+        val created = CachedSession(id, newTerminal())
+        sessionCache.addLast(created)
+        while (sessionCache.size > SESSION_CACHE_LIMIT) {
+            val victim = sessionCache.firstOrNull { it.id != id } ?: break
+            sessionCache.remove(victim)
+            victim.terminal.onFrame = null
+        }
+        return created
+    }
+
+    private fun showTerminal(next: HostTerminal) {
+        if (terminal === next) return
+        terminal.onFrame = null
+        terminal = next
+    }
+
+    private fun flushSessionCache() {
+        outputJob?.cancel()
+        outputGeneration += 1
+        sessionCache.forEach { it.terminal.onFrame = null }
+        sessionCache.clear()
+        terminal = newTerminal()
+        sessionPreparing = false
+        openingFrameReady = false
+    }
+
     fun openSession(id: String) {
         if (openSessionID == id) return
         releasePhoneFit()
@@ -205,12 +267,17 @@ class Controller(context: Context) {
         keyboardOpen = false
         lastFitAttemptMs = 0L
         fitRejected = false
-        terminal.prepare(80, 24)
+        val slot = rememberSession(id)
+        showTerminal(slot.terminal)
+        val held = slot.outputOffset
+        val resume = slot.replayDone && slot.coherent && held != null
+        sessionPreparing = !resume
+        openingFrameReady = false
         artifacts = emptyList()
         artifactImage = null
         showGallery = false
         scope.launch { runCatching { link()?.post("mark-read", JSONObject().put("sessionID", id).toString()) } }
-        startOutput(id)
+        startOutput(id, resumeOffset = if (resume) held else null)
         startFitWatch(id)
         startGalleryWatch(id)
     }
@@ -221,6 +288,8 @@ class Controller(context: Context) {
         releasePhoneFit()
         outputJob?.cancel()
         openSessionID = null
+        sessionPreparing = false
+        openingFrameReady = false
         showGallery = false
         artifactImage = null
     }
@@ -236,6 +305,7 @@ class Controller(context: Context) {
             desiredColumns = columns
             desiredRows = rows
         }
+        revealOpening()
     }
 
     private fun startFitWatch(sessionID: String) {
@@ -313,6 +383,7 @@ class Controller(context: Context) {
                 }
                 if (!posted) {
                     fitRejected = true
+                    revealOpening()
                     return@withLock
                 }
                 phoneFitSession = sessionID
@@ -325,6 +396,7 @@ class Controller(context: Context) {
                     startOutput(sessionID, cols, lines)
                 } else {
                     terminal.resizeGrid(cols, lines)
+                    revealOpening()
                 }
             }
         }
@@ -672,9 +744,33 @@ class Controller(context: Context) {
     }
 
     private fun write(sessionID: String, data: String) {
-        val active = link ?: return
-        scope.launch {
-            inputLock.withLock { postWrite(active, sessionID, data) }
+        if (data.isEmpty() || link == null) return
+        val start = synchronized(writeLock) {
+            val tail = writeQueue.lastOrNull()
+            if (tail != null && tail.sessionID == sessionID) {
+                tail.data.append(data)
+            } else {
+                writeQueue.addLast(WriteBatch(sessionID, StringBuilder(data)))
+            }
+            if (writeDraining) {
+                false
+            } else {
+                writeDraining = true
+                true
+            }
+        }
+        if (start) scope.launch { drainWrites() }
+    }
+
+    private suspend fun drainWrites() {
+        while (true) {
+            val batch = synchronized(writeLock) {
+                writeQueue.removeFirstOrNull().also { next ->
+                    if (next == null) writeDraining = false
+                }
+            } ?: return
+            val active = link ?: continue
+            postWrite(active, batch.sessionID, batch.data.toString())
         }
     }
 
@@ -741,16 +837,81 @@ class Controller(context: Context) {
 
     private fun link(): HostLink = link ?: throw HostException(0, "未连接")
 
-    private fun startOutput(sessionID: String, columns: Int? = null, rows: Int? = null) {
+    private fun noteOpeningFrame(generation: Int) {
+        if (generation != outputGeneration || !sessionPreparing) return
+        openingFrameReady = true
+        if (revealOpening()) return
+        val sessionID = openSessionID
+        scope.launch {
+            delay(2_500)
+            if (generation != outputGeneration || openSessionID != sessionID) return@launch
+            // The box never reported a grid. Show the frame we have.
+            if (sessionPreparing && openingFrameReady && desiredColumns < 2) {
+                sessionPreparing = false
+            }
+        }
+    }
+
+    /** The cover stays up while this frame is still the desktop width. */
+    private fun revealOpening(): Boolean {
+        if (!sessionPreparing || !openingFrameReady) return false
+        if (!fitRejected && !phoneGridReady()) return false
+        sessionPreparing = false
+        return true
+    }
+
+    private fun phoneGridReady(): Boolean {
+        if (desiredColumns < 2 || desiredRows < 2) return false
+        return kotlin.math.abs(terminal.columns - desiredColumns) <= 2 &&
+            kotlin.math.abs(terminal.rows - desiredRows) <= 2
+    }
+
+    /**
+     * Feeds one chunk in pieces the size of the iOS slice. Yielding between
+     * pieces lets a touch and the next wheel report run. The frame is
+     * invalidated only on the last piece, so a sliced redraw is not shown torn.
+     */
+    private suspend fun feedBytes(bytes: ByteArray, live: Boolean, notify: Boolean, generation: Int): Boolean {
+        if (bytes.isEmpty()) return generation == outputGeneration
+        var index = 0
+        while (index < bytes.size) {
+            if (generation != outputGeneration) return false
+            val end = minOf(index + FEED_SLICE_BYTES, bytes.size)
+            val last = end == bytes.size
+            terminal.feed(bytes.copyOfRange(index, end), live = live, notify = notify && last)
+            index = end
+            if (!last) yield()
+        }
+        return generation == outputGeneration
+    }
+
+    private fun startOutput(
+        sessionID: String,
+        columns: Int? = null,
+        rows: Int? = null,
+        resumeOffset: Long? = null,
+    ) {
         outputJob?.cancel()
         val generation = ++outputGeneration
+        val slot = sessionCache.firstOrNull { it.id == sessionID }
+        val screen = slot?.terminal ?: terminal
+        val refit = columns != null && rows != null
         if (columns != null && rows != null) {
-            terminal.prepare(columns, rows)
+            // The cached grid cannot wrap a new column count. Cover the blank reset.
+            sessionPreparing = true
+            openingFrameReady = false
+            screen.prepare(columns, rows)
+            slot?.outputOffset = null
+            slot?.replayDone = false
+            slot?.coherent = false
+        } else if (resumeOffset == null && sessionPreparing) {
+            openingFrameReady = false
         }
-        val preset = columns != null && rows != null
+        val preset = refit
+        val resume = resumeOffset != null && !refit
         outputJob = scope.launch {
-            var offset: Long? = null
-            var sized = preset
+            var offset: Long? = if (resume) resumeOffset else null
+            var sized = preset || resume
             val queries = TerminalQueryFilter()
             while (openSessionID == sessionID && generation == outputGeneration) {
                 try {
@@ -761,7 +922,7 @@ class Controller(context: Context) {
                         }.getOrNull()
                         if (generation != outputGeneration) return@launch
                         if (metrics != null) {
-                            terminal.prepare(
+                            screen.prepare(
                                 metrics.optInt("columns", 80).coerceIn(2, 300),
                                 metrics.optInt("rows", 24).coerceIn(2, 120),
                             )
@@ -775,21 +936,43 @@ class Controller(context: Context) {
                     )
                     if (offset != null) query["offset"] = offset.toString()
                     val requested = offset
-                    val chunk = BootstrapJson.outputChunk(
-                        active.get("output", query, timeoutMs = if (offset == null) 10_000 else 14_000),
-                    )
+                    val body = active.get("output", query, timeoutMs = if (offset == null) 10_000 else 14_000)
+                    if (generation != outputGeneration) return@launch
+                    // Base64 of a full-screen redraw is hundreds of kilobytes.
+                    // Decode it off the main thread so a wheel can still be drawn.
+                    val chunk = withContext(Dispatchers.Default) { BootstrapJson.outputChunk(body) }
                     if (generation != outputGeneration) return@launch
                     // A fresh tail, or a journal that moved under us, is a new
                     // screen. Queries are removed from every chunk: the Mac
                     // terminal already answered them.
                     val replay = requested == null || chunk.truncated || chunk.offset != requested
+                    if (replay && requested != null && chunk.modePreamble == null) {
+                        // The held offset fell out of the journal. Ask for a fresh tail,
+                        // which is the request that carries the mode preamble.
+                        sessionPreparing = true
+                        openingFrameReady = false
+                        slot?.coherent = false
+                        offset = null
+                        continue
+                    }
                     if (replay) {
                         queries.reset()
-                        terminal.prepare(terminal.columns, terminal.rows)
-                        chunk.modePreamble?.let { terminal.feed(it, live = false) }
+                        screen.prepare(screen.columns, screen.rows)
+                        slot?.replayDone = false
+                        slot?.coherent = false
                     }
-                    val visible = queries.strip(chunk.data)
-                    if (visible.isNotEmpty()) terminal.feed(visible, live = !replay)
+                    val visible = withContext(Dispatchers.Default) { queries.strip(chunk.data) }
+                    if (generation != outputGeneration) return@launch
+                    val preamble = if (replay) chunk.modePreamble else null
+                    slot?.coherent = false
+                    if (preamble != null && !feedBytes(preamble, live = false, notify = visible.isEmpty(), generation)) {
+                        return@launch
+                    }
+                    if (!feedBytes(visible, live = !replay, notify = true, generation)) return@launch
+                    slot?.outputOffset = chunk.nextOffset
+                    slot?.replayDone = true
+                    slot?.coherent = true
+                    noteOpeningFrame(generation)
                     offset = chunk.nextOffset
                 } catch (_: Exception) {
                     if (generation != outputGeneration) return@launch

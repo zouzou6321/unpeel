@@ -205,10 +205,19 @@ class HostTerminalView(
     }
 
     fun bind(terminal: HostTerminal) {
+        val switching = this.terminal !== terminal
+        if (switching && this.terminal.onFrame === frameListener) {
+            this.terminal.parkedScroll = offsetRows
+            this.terminal.onFrame = null
+        }
         this.terminal = terminal
         terminal.onFrame = frameListener
         terminal.updateCellSize(cellWidth.roundToInt(), cellHeight)
+        if (!switching) return
         noteEmulator(terminal.emulator)
+        offsetRows = terminal.parkedScroll.coerceAtLeast(0)
+        clampOffset(terminal.emulator)
+        postInvalidateOnAnimation()
     }
 
     fun selectedText(): String {
