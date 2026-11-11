@@ -95,6 +95,14 @@ class Controller(context: Context) {
     private var usingPublic = false
     /** Address the current direct link actually dialed. */
     private var dialEndpoint: String? = null
+    /**
+     * Dial the live terminal stream was subscribed on. Recorded after a
+     * successful bootstrap. A later failure does not clear it, so reconnecting
+     * the same path does not redraw. The first success only records it.
+     */
+    private var outputDial: OutputDial? = null
+
+    private data class OutputDial(val relay: Boolean, val endpoint: String?)
 
     var hosts by mutableStateOf(loadHosts())
         private set
@@ -228,10 +236,11 @@ class Controller(context: Context) {
     private fun newTerminal() = HostTerminal(
         replies = { bytes ->
             val id = openSessionID ?: return@HostTerminal
-            val active = link ?: return@HostTerminal
             val text = bytes.toString(Charsets.UTF_8)
             if (text.isEmpty()) return@HostTerminal
-            scope.launch { postWrite(active, id, text) }
+            // Keep the keystroke when the link is down. drainWrites sends it
+            // on the next link, in order, and does not post into the one closing.
+            write(id, text)
         },
         onCopy = { text ->
             val clipboard = appContext.getSystemService(ClipboardManager::class.java) ?: return@HostTerminal
@@ -283,14 +292,21 @@ class Controller(context: Context) {
         val slot = rememberSession(id)
         showTerminal(slot.terminal)
         val held = slot.outputOffset
-        val resume = slot.replayDone && slot.coherent && held != null
-        sessionPreparing = !resume
+        val hasPicture = slot.replayDone && held != null
+        val resume = hasPicture && slot.coherent
+        // A painted session that lost its stream keeps that frame. The cover
+        // is only for a session that has nothing to show yet.
+        sessionPreparing = !hasPicture
         openingFrameReady = false
         artifacts = emptyList()
         artifactImage = null
         showGallery = false
         scope.launch { runCatching { link()?.post("mark-read", JSONObject().put("sessionID", id).toString()) } }
-        startOutput(id, resumeOffset = if (resume) held else null)
+        startOutput(
+            id,
+            resumeOffset = if (resume) held else null,
+            keepPicture = hasPicture && !resume,
+        )
         startFitWatch(id)
         startGalleryWatch(id)
     }
@@ -757,15 +773,22 @@ class Controller(context: Context) {
     }
 
     private fun write(sessionID: String, data: String) {
-        if (data.isEmpty() || link == null) return
-        val start = synchronized(writeLock) {
+        if (data.isEmpty()) return
+        synchronized(writeLock) {
             val tail = writeQueue.lastOrNull()
             if (tail != null && tail.sessionID == sessionID) {
                 tail.data.append(data)
             } else {
                 writeQueue.addLast(WriteBatch(sessionID, StringBuilder(data)))
             }
-            if (writeDraining) {
+        }
+        kickWrites()
+    }
+
+    /** Send queued input once a link exists. A missing link leaves the queue in order. */
+    private fun kickWrites() {
+        val start = synchronized(writeLock) {
+            if (writeDraining || writeQueue.isEmpty() || link == null) {
                 false
             } else {
                 writeDraining = true
@@ -775,15 +798,29 @@ class Controller(context: Context) {
         if (start) scope.launch { drainWrites() }
     }
 
+    private fun setLink(next: HostLink?) {
+        link = next
+        if (next != null) kickWrites()
+    }
+
     private suspend fun drainWrites() {
         while (true) {
             val batch = synchronized(writeLock) {
-                writeQueue.removeFirstOrNull().also { next ->
-                    if (next == null) writeDraining = false
+                val active = link
+                if (active == null) {
+                    writeDraining = false
+                    null
+                } else {
+                    val next = writeQueue.removeFirstOrNull()
+                    if (next == null) {
+                        writeDraining = false
+                        null
+                    } else {
+                        active to next
+                    }
                 }
             } ?: return
-            val active = link ?: continue
-            postWrite(active, batch.sessionID, batch.data.toString())
+            postWrite(batch.first, batch.second.sessionID, batch.second.data.toString())
         }
     }
 
@@ -803,7 +840,8 @@ class Controller(context: Context) {
     private fun startPolling() {
         pollJob?.cancel()
         outputJob?.cancel()
-        link = null
+        setLink(null)
+        outputDial = null
         connection = "正在连接"
         pollJob = scope.launch {
             while (true) {
@@ -816,12 +854,10 @@ class Controller(context: Context) {
     private suspend fun refreshOnce() {
         val host = selectedHost ?: return
         try {
-            var switchedToLan = false
             if (usingPublic && !host.publicEndpoint.isNullOrEmpty() && lanAnswers(host)) {
-                link = null
+                setLink(null)
                 usingPublic = false
                 dialEndpoint = null
-                switchedToLan = true
             }
             val body = connectedLink(host).get("bootstrap", timeoutMs = 8_000)
             snapshot = BootstrapJson.parse(body)
@@ -834,11 +870,11 @@ class Controller(context: Context) {
             snapshot?.remoteServerCertificateFingerprint?.let { pin ->
                 if (host.fingerprint != pin) updateFingerprint(host.macID, pin)
             }
-            if (switchedToLan) restartOutputOnActiveLink()
+            noteDial()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (caught: Exception) {
-            link = null
+            setLink(null)
             usingPublic = false
             dialEndpoint = null
             connection = caught.message ?: "连接中断"
@@ -858,10 +894,20 @@ class Controller(context: Context) {
         }
     }
 
-    private fun restartOutputOnActiveLink() {
+    /**
+     * A real path change (LAN, public, or Link) subscribes again from the
+     * Host's current screen. The same dial coming back does not.
+     */
+    private fun noteDial() {
+        val next = OutputDial(relay = usingRelay, endpoint = dialEndpoint)
+        val previous = outputDial
+        outputDial = next
+        if (previous == null || previous == next) return
+        for (cached in sessionCache) cached.coherent = false
         val sessionID = openSessionID ?: return
-        val offset = sessionCache.firstOrNull { it.id == sessionID }?.outputOffset
-        startOutput(sessionID, resumeOffset = offset)
+        val slot = sessionCache.firstOrNull { it.id == sessionID }
+        val keep = slot?.replayDone == true && slot.outputOffset != null
+        startOutput(sessionID, keepPicture = keep)
     }
 
     private suspend fun connectedLink(host: SavedHost): HostLink {
@@ -872,7 +918,8 @@ class Controller(context: Context) {
             usingRelay = false
             usingPublic = false
             dialEndpoint = host.endpoint
-            return lan.also { link = it }
+            setLink(lan)
+            return lan
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -884,7 +931,8 @@ class Controller(context: Context) {
                     usingRelay = false
                     usingPublic = true
                     dialEndpoint = publicURL
-                    return pub.also { link = it }
+                    setLink(pub)
+                    return pub
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -902,7 +950,7 @@ class Controller(context: Context) {
             e2eKey = b64d(host.e2eKeyB64),
             deviceID = deviceId,
             authToken = host.authToken,
-        ).also { link = it }
+        ).also { setLink(it) }
     }
 
     private fun link(): HostLink = link ?: throw HostException(0, "未连接")
@@ -1013,6 +1061,7 @@ class Controller(context: Context) {
         generation: Int,
         queries: TerminalQueryFilter,
         fresh: Boolean,
+        onReplaced: () -> Unit,
     ): SocketStream {
         val socket = TerminalOutputSocket(target.fingerprint)
         try {
@@ -1039,6 +1088,9 @@ class Controller(context: Context) {
             }
             var expectBaseline = hello.snapshot && pendingReset
             var held = if (pendingReset) null else slot?.outputOffset
+            // The Host sends the baseline text before any journal frame. Hold a
+            // frame that arrives early so it cannot splice onto the kept screen.
+            val beforeBaseline = ArrayDeque<TerminalOutputBinary>()
             while (openSessionID == sessionID && generation == outputGeneration && currentCoroutineContext().isActive) {
                 when (val event = socket.receive()) {
                     TerminalOutputSocket.Event.End -> return SocketStream.Fallback
@@ -1048,8 +1100,19 @@ class Controller(context: Context) {
                                 if (!expectBaseline) continue
                                 expectBaseline = false
                                 if (!applyBaseline(message, screen, slot, generation, queries)) return SocketStream.Stop
+                                onReplaced()
                                 pendingReset = false
                                 held = message.journalOffset
+                                for (queued in beforeBaseline) {
+                                    val appended = appendOutputFrame(
+                                        queued, hello, screen, slot, generation, queries, sessionID,
+                                        pendingReset = false,
+                                        held,
+                                    )
+                                    if (appended.stream != null) return appended.stream
+                                    held = appended.held
+                                }
+                                beforeBaseline.clear()
                             }
                             is TerminalOutputText.Error -> Log.i("Unpeel", "output websocket: ${message.message}")
                             else -> Unit
@@ -1059,11 +1122,17 @@ class Controller(context: Context) {
                         val frame = withContext(Dispatchers.Default) {
                             TerminalOutputFrames.parseBinary(event.bytes)
                         } ?: return SocketStream.Fallback
-                        if (expectBaseline) expectBaseline = false
+                        if (expectBaseline) {
+                            if (beforeBaseline.size >= 32) return SocketStream.Fallback
+                            beforeBaseline.addLast(frame)
+                            continue
+                        }
+                        val reset = pendingReset
                         val appended = appendOutputFrame(
                             frame, hello, screen, slot, generation, queries, sessionID, pendingReset, held,
                         )
                         if (appended.stream != null) return appended.stream
+                        if (reset) onReplaced()
                         pendingReset = false
                         held = appended.held
                     }
@@ -1085,7 +1154,10 @@ class Controller(context: Context) {
         }
     }
 
-    /** Reset the emulator and paint the Host's screen. The cursor is the journal offset, not the snapshot's length. */
+    /**
+     * Paint the Host's screen in one frame. Strip off the main thread first.
+     * The cursor is the journal offset, not the snapshot's length.
+     */
     private suspend fun applyBaseline(
         baseline: TerminalOutputText.Baseline,
         screen: HostTerminal,
@@ -1094,12 +1166,13 @@ class Controller(context: Context) {
         queries: TerminalQueryFilter,
     ): Boolean {
         queries.reset()
-        screen.prepare(
-            baseline.cols.takeIf { it >= 2 } ?: screen.columns,
-            baseline.rows.takeIf { it >= 2 } ?: screen.rows,
-        )
+        val columns = baseline.cols.takeIf { it >= 2 } ?: screen.columns
+        val rows = baseline.rows.takeIf { it >= 2 } ?: screen.rows
         val visible = withContext(Dispatchers.Default) { queries.strip(baseline.bytes) }
         if (generation != outputGeneration) return false
+        // Silent until the bytes are in hand, then one paint. An empty
+        // snapshot still publishes the cleared screen.
+        screen.prepare(columns, rows, notify = visible.isEmpty())
         slot?.coherent = false
         if (visible.isNotEmpty() && !feedBytes(
                 visible,
@@ -1150,26 +1223,40 @@ class Controller(context: Context) {
         }
         if (pendingReset) {
             queries.reset()
+            val preamble = hello.modePreamble
+            val visible = withContext(Dispatchers.Default) { queries.strip(payload) }
+            if (generation != outputGeneration) return FrameAppend(SocketStream.Stop, held)
+            val willFeed = (preamble != null && preamble.isNotEmpty()) || visible.isNotEmpty()
             screen.prepare(
                 (hello.cols ?: screen.columns).coerceIn(2, 300),
                 (hello.rows ?: screen.rows).coerceIn(2, 120),
+                notify = !willFeed,
             )
-            val preamble = hello.modePreamble
-            if (preamble != null && !feedBytes(
+            slot?.coherent = false
+            if (preamble != null && preamble.isNotEmpty() && !feedBytes(
                     preamble,
                     live = false,
-                    notify = payload.isEmpty(),
+                    notify = visible.isEmpty(),
                     generation = generation,
                     hostSnapshot = true,
                 )
             ) {
                 return FrameAppend(SocketStream.Stop, held)
             }
+            if (visible.isNotEmpty() && !feedBytes(visible, live = false, notify = true, generation)) {
+                return FrameAppend(SocketStream.Stop, held)
+            }
+            val next = origin + payload.size
+            slot?.outputOffset = next
+            slot?.replayDone = true
+            slot?.coherent = true
+            noteOpeningFrame(generation)
+            return FrameAppend(null, next)
         }
         val visible = withContext(Dispatchers.Default) { queries.strip(payload) }
         if (generation != outputGeneration) return FrameAppend(SocketStream.Stop, held)
         slot?.coherent = false
-        if (visible.isNotEmpty() && !feedBytes(visible, live = !pendingReset, notify = true, generation)) {
+        if (visible.isNotEmpty() && !feedBytes(visible, live = true, notify = true, generation)) {
             return FrameAppend(SocketStream.Stop, held)
         }
         val next = origin + payload.size
@@ -1226,6 +1313,7 @@ class Controller(context: Context) {
         columns: Int? = null,
         rows: Int? = null,
         resumeOffset: Long? = null,
+        keepPicture: Boolean = false,
     ) {
         outputJob?.cancel()
         val generation = ++outputGeneration
@@ -1240,22 +1328,31 @@ class Controller(context: Context) {
             slot?.outputOffset = null
             slot?.replayDone = false
             slot?.coherent = false
+        } else if (keepPicture) {
+            // Leave the last frame up. The snapshot replaces it in one paint.
+            sessionPreparing = false
+            slot?.coherent = false
         } else if (resumeOffset == null && sessionPreparing) {
             openingFrameReady = false
         }
         val preset = refit
-        val resume = resumeOffset != null && !refit
+        val resume = resumeOffset != null && !refit && !keepPicture
         outputJob = scope.launch {
             var offset: Long? = if (resume) resumeOffset else null
-            var sized = preset || resume
+            var sized = preset || resume || keepPicture
             var replaceWithSnapshot = !resume
             var socketGaveUp = false
+            var holdingPicture = keepPicture
             val queries = TerminalQueryFilter()
             while (openSessionID == sessionID && generation == outputGeneration) {
                 if (!socketGaveUp) {
                     val target = outputSocketTarget(sessionID, if (replaceWithSnapshot) null else offset)
                     if (target != null) {
-                        when (streamOutputSocket(target, sessionID, screen, slot, generation, queries, replaceWithSnapshot)) {
+                        when (
+                            streamOutputSocket(
+                                target, sessionID, screen, slot, generation, queries, replaceWithSnapshot,
+                            ) { holdingPicture = false }
+                        ) {
                             SocketStream.Stop -> return@launch
                             SocketStream.Restart -> {
                                 replaceWithSnapshot = true
@@ -1265,7 +1362,9 @@ class Controller(context: Context) {
                             }
                             SocketStream.Fallback -> {
                                 socketGaveUp = true
-                                if (slot?.replayDone == true) {
+                                // A kept picture is incoherent with this dial.
+                                // Resuming its offset would splice the new tail on.
+                                if (!holdingPicture && slot?.replayDone == true) {
                                     replaceWithSnapshot = false
                                     offset = slot.outputOffset ?: offset
                                     sized = true
@@ -1314,6 +1413,42 @@ class Controller(context: Context) {
                         openingFrameReady = false
                         slot?.coherent = false
                         offset = null
+                        holdingPicture = false
+                        continue
+                    }
+                    if (replay && holdingPicture) {
+                        queries.reset()
+                        val preambleBytes = chunk.modePreamble
+                        val visible = withContext(Dispatchers.Default) { queries.strip(chunk.data) }
+                        if (generation != outputGeneration) return@launch
+                        val willFeed = (preambleBytes != null && preambleBytes.isNotEmpty()) || visible.isNotEmpty()
+                        screen.prepare(screen.columns, screen.rows, notify = !willFeed)
+                        slot?.coherent = false
+                        if (preambleBytes != null && preambleBytes.isNotEmpty() && !feedBytes(
+                                preambleBytes,
+                                live = false,
+                                notify = visible.isEmpty(),
+                                generation = generation,
+                                hostSnapshot = true,
+                            )
+                        ) {
+                            return@launch
+                        }
+                        if (visible.isNotEmpty() && !feedBytes(
+                                visible,
+                                live = false,
+                                notify = true,
+                                generation = generation,
+                            )
+                        ) {
+                            return@launch
+                        }
+                        holdingPicture = false
+                        slot?.outputOffset = chunk.nextOffset
+                        slot?.replayDone = true
+                        slot?.coherent = true
+                        noteOpeningFrame(generation)
+                        offset = chunk.nextOffset
                         continue
                     }
                     if (replay) {
@@ -1347,7 +1482,7 @@ class Controller(context: Context) {
                 } catch (_: Exception) {
                     if (generation != outputGeneration) return@launch
                     socketGaveUp = false
-                    link = null
+                    setLink(null)
                     delay(1_000)
                 }
             }

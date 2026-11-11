@@ -95,12 +95,16 @@ class HostTerminal(
         emulator = create(80, 24)
     }
 
-    /** Drop the screen and start a new grid. Does not talk to the Host. */
-    fun prepare(columns: Int, rows: Int) {
+    /**
+     * Drop the screen and start a new grid. Does not talk to the Host.
+     * A path switch passes notify false, then feeds the replacement in the
+     * same turn, so the view keeps the last frame until that paint.
+     */
+    fun prepare(columns: Int, rows: Int, notify: Boolean = true) {
         live = false
         modes.reset()
         emulator = create(columns.coerceIn(2, 300), rows.coerceIn(2, 120))
-        onFrame?.invoke()
+        if (notify) onFrame?.invoke()
     }
 
     /** Terminal frame color. OpenCode and Grok send a hex; everyone else stays on the default. */
