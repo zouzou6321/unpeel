@@ -263,7 +263,9 @@ class HostTerminalView(
     })
 
     init {
-        val textPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, resources.displayMetrics)
+        // 16sp is easier to read than the old 13sp desktop default. iOS stays
+        // at 11pt, which is denser, so this is deliberately larger.
+        val textPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, resources.displayMetrics)
             .roundToInt()
             .coerceAtLeast(8)
         val metrics = TerminalMetrics(textPx)
