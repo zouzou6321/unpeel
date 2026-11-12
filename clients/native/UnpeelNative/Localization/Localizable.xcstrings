@@ -1,206 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Choose how this code connects": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个配对码怎么连"
-          }
-        }
-      }
-    },
-    "Local network": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "局域网"
-          }
-        }
-      }
-    },
-    "Public address": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公网"
-          }
-        }
-      }
-    },
-    "Both": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "两个都要"
-          }
-        }
-      }
-    },
-    "The code carries this Mac's local address.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配对码里是这台 Mac 的局域网地址。"
-          }
-        }
-      }
-    },
-    "The code carries only the public address. Fill in the IP and port. This Mac checks that it can open them before saving.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配对码里只有公网地址。填好 IP 和端口后，这台 Mac 会先检查自己能不能连上，连上才允许保存。"
-          }
-        }
-      }
-    },
-    "The phone uses the local network when it can, switches to the public address when it cannot, and comes back when the local network answers again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "能走局域网就走局域网。局域网不通时改走公网，并继续探测局域网，一旦可用就回到局域网。"
-          }
-        }
-      }
-    },
-    "The code keeps this Mac's local address, so an iPhone scans it as before. An Android phone also remembers the public address, uses it when the local network does not answer, and switches back as soon as the local network does.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "二维码仍是这台 Mac 的局域网地址，iPhone 照旧扫描。安卓还会记下公网地址：局域网不通时走公网，并继续探测，局域网一恢复就立刻切回去。"
-          }
-        }
-      }
-    },
-    "Public IP": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公网 IP"
-          }
-        }
-      }
-    },
-    "Port": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "端口"
-          }
-        }
-      }
-    },
-    "This Mac's pairing service is listening on %d. Forward the public port to it.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 的配对服务正在监听 %d。公网端口要转发到这个端口。"
-          }
-        }
-      }
-    },
-    "This Mac's pairing service has not opened a port yet.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 的配对服务还没有打开端口。"
-          }
-        }
-      }
-    },
-    "The live terminal is listening on %d. Forward that port as well, or a public connection falls back to ordinary fetching.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端实时通道正在监听 %d。这个端口也要转发，否则公网会退回普通拉取。"
-          }
-        }
-      }
-    },
-    "Checking whether this Mac can open that address…": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在检查这台 Mac 能不能连上这个地址…"
-          }
-        }
-      }
-    },
-    "This Mac can reach that address.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 能连上这个地址。"
-          }
-        }
-      }
-    },
-    "This Mac could not open that address. The IP and port have to reach this Mac's pairing service.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 连不上这个地址。请确认 IP 和端口能到达这台 Mac 的配对服务。"
-          }
-        }
-      }
-    },
-    "Enter the public IPv4 address and the forwarded port.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "填写公网 IPv4 地址和转发端口。"
-          }
-        }
-      }
-    },
-    "Save": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存"
-          }
-        }
-      }
-    },
-    "Change connection": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更改连接方式"
-          }
-        }
-      }
-    },
-    "The live terminal uses a second port. Until that port is forwarded, public connections fall back to ordinary fetching.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端实时通道用另一个端口。这个端口没做转发时，公网会退回普通拉取。"
-          }
-        }
-      }
-    },
     "System": {
       "localizations": {
         "zh-Hans": {
@@ -631,12 +431,12 @@
         }
       }
     },
-    "%d devices": {
+    "%ld devices": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 台设备"
+            "value": "%ld 台设备"
           }
         }
       }
@@ -1701,6 +1501,16 @@
         }
       }
     },
+    "Mark all as read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部标为已读"
+          }
+        }
+      }
+    },
     "Back to workspace": {
       "localizations": {
         "zh-Hans": {
@@ -2521,12 +2331,12 @@
         }
       }
     },
-    "%d running · %@ CPU · %@ memory. Sorted by current CPU usage.": {
+    "%ld running · %@ CPU · %@ memory. Sorted by current CPU usage.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 个运行中 · %@ CPU · %@ 内存。按当前 CPU 排序。"
+            "value": "%ld 个运行中 · %@ CPU · %@ 内存。按当前 CPU 排序。"
           }
         }
       }
@@ -3091,12 +2901,12 @@
         }
       }
     },
-    "%d sessions": {
+    "%ld sessions": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 个会话"
+            "value": "%ld 个会话"
           }
         }
       }
@@ -3201,12 +3011,12 @@
         }
       }
     },
-    "%d Hosts": {
+    "%ld Hosts": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 个 Host"
+            "value": "%ld 个 Host"
           }
         }
       }
@@ -3381,12 +3191,12 @@
         }
       }
     },
-    "Expires in %d:%02d": {
+    "Expires in %ld:%02ld": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "于 %d:%02d 后过期"
+            "value": "于 %ld:%02ld 后过期"
           }
         }
       }
@@ -3901,12 +3711,12 @@
         }
       }
     },
-    "%d agents are installed without their Unpeel integration": {
+    "%ld agents are installed without their Unpeel integration": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 个智能体已安装但未配置 Unpeel 集成"
+            "value": "%ld 个智能体已安装但未配置 Unpeel 集成"
           }
         }
       }
@@ -5431,12 +5241,12 @@
         }
       }
     },
-    "After %d minutes": {
+    "After %ld minutes": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 分钟后"
+            "value": "%ld 分钟后"
           }
         }
       }
@@ -5461,12 +5271,12 @@
         }
       }
     },
-    "After %d hours": {
+    "After %ld hours": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 小时后"
+            "value": "%ld 小时后"
           }
         }
       }
@@ -5951,12 +5761,12 @@
         }
       }
     },
-    "Fonts render on this Mac, so this is this Controller's own setting: it applies to %@'s terminals and every other workspace alike. ⌘+ and ⌘− zoom all panes; ⌘0 returns to %d pt.": {
+    "Fonts render on this Mac, so this is this Controller's own setting: it applies to %@'s terminals and every other workspace alike. ⌘+ and ⌘− zoom all panes; ⌘0 returns to %ld pt.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字体在本机渲染，因此这是此 Controller 自己的设置：同样应用于 %@ 的终端及其他所有工作区。⌘+ / ⌘− 缩放所有窗格；⌘0 恢复为 %d pt。"
+            "value": "字体在本机渲染，因此这是此 Controller 自己的设置：同样应用于 %@ 的终端及其他所有工作区。⌘+ / ⌘− 缩放所有窗格；⌘0 恢复为 %ld pt。"
           }
         }
       }
@@ -6331,12 +6141,12 @@
         }
       }
     },
-    "Family and size for every terminal on this Mac. ⌘+ and ⌘− zoom all panes together; ⌘0 returns to %d pt. Ghostty falls back to other installed faces for glyphs the chosen font lacks.": {
+    "Family and size for every terminal on this Mac. ⌘+ and ⌘− zoom all panes together; ⌘0 returns to %ld pt. Ghostty falls back to other installed faces for glyphs the chosen font lacks.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本机每个终端的字体族与大小。⌘+ / ⌘− 一并缩放所有窗格；⌘0 恢复为 %d pt。若所选字体缺少字形，Ghostty 会回退到其他已安装字体。"
+            "value": "本机每个终端的字体族与大小。⌘+ / ⌘− 一并缩放所有窗格；⌘0 恢复为 %ld pt。若所选字体缺少字形，Ghostty 会回退到其他已安装字体。"
           }
         }
       }
@@ -7031,12 +6841,12 @@
         }
       }
     },
-    "%d proc": {
+    "%ld proc": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d 进程"
+            "value": "%ld 进程"
           }
         }
       }
@@ -7277,6 +7087,1306 @@
           "stringUnit": {
             "state": "translated",
             "value": "绿色"
+          }
+        }
+      }
+    },
+    "No session selected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选择会话"
+          }
+        }
+      }
+    },
+    "Pick a session in the sidebar, or hit + on a project": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏选择会话，或点击项目上的 +"
+          }
+        }
+      }
+    },
+    "Couldn't resume the conversation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法恢复对话"
+          }
+        }
+      }
+    },
+    "Its history no longer exists on disk, so the agent can only start over.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话记录已不在磁盘上，只能重新开始。"
+          }
+        }
+      }
+    },
+    "Start fresh": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新开始"
+          }
+        }
+      }
+    },
+    "Start a fresh session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新开始一个会话"
+          }
+        }
+      }
+    },
+    "Dismiss recommendation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭建议"
+          }
+        }
+      }
+    },
+    "Dismiss resume failure notice": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭恢复失败提示"
+          }
+        }
+      }
+    },
+    "Scroll to bottom": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动到底部"
+          }
+        }
+      }
+    },
+    "Session exited": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已退出"
+          }
+        }
+      }
+    },
+    "Resuming": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复"
+          }
+        }
+      }
+    },
+    "No recent activity": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近没有动态"
+          }
+        }
+      }
+    },
+    "Session starts, finishes, input requests, and App alerts will appear here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话的开始、结束、需要输入和应用提醒会显示在这里。"
+          }
+        }
+      }
+    },
+    "Search sessions, projects, commands…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索会话、项目、命令…"
+          }
+        }
+      }
+    },
+    "No matches": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配"
+          }
+        }
+      }
+    },
+    "All sessions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部会话"
+          }
+        }
+      }
+    },
+    "New session: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建会话：%@"
+          }
+        }
+      }
+    },
+    "in %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %@"
+          }
+        }
+      }
+    },
+    "Toggle Sidebar": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换侧边栏"
+          }
+        }
+      }
+    },
+    "⌃Tab cycle · release ⌃ to switch · esc cancel": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab 循环 · 松开 ⌃ 切换 · esc 取消"
+          }
+        }
+      }
+    },
+    "Today": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天"
+          }
+        }
+      }
+    },
+    "Yesterday": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨天"
+          }
+        }
+      }
+    },
+    "just now": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刚刚"
+          }
+        }
+      }
+    },
+    "%@ ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@前"
+          }
+        }
+      }
+    },
+    "Started %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@开始"
+          }
+        }
+      }
+    },
+    "Needed input %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@需要输入"
+          }
+        }
+      }
+    },
+    "Done %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@完成"
+          }
+        }
+      }
+    },
+    "Finished %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@结束"
+          }
+        }
+      }
+    },
+    "Exited %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@退出"
+          }
+        }
+      }
+    },
+    "Alerted %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@发出提醒"
+          }
+        }
+      }
+    },
+    "%@ · %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        }
+      }
+    },
+    "Starting": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动中"
+          }
+        }
+      }
+    },
+    "Restarting": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启中"
+          }
+        }
+      }
+    },
+    "Working": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作中"
+          }
+        }
+      }
+    },
+    "Blocked": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受阻"
+          }
+        }
+      }
+    },
+    "Idle": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        }
+      }
+    },
+    "Exited": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已退出"
+          }
+        }
+      }
+    },
+    "Alert": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒"
+          }
+        }
+      }
+    },
+    "Alert · %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒 · %@"
+          }
+        }
+      }
+    },
+    "Untitled session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名会话"
+          }
+        }
+      }
+    },
+    "No projects yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有项目"
+          }
+        }
+      }
+    },
+    "Drag anywhere on the row to reorder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动这一行即可排序"
+          }
+        }
+      }
+    },
+    "Start %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动 %@"
+          }
+        }
+      }
+    },
+    "Start %@…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动 %@…"
+          }
+        }
+      }
+    },
+    "Multi-pane view with %ld sessions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含 %ld 个会话的多窗格"
+          }
+        }
+      }
+    },
+    "Focus representative pane": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦代表窗格"
+          }
+        }
+      }
+    },
+    "Focus pane": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦窗格"
+          }
+        }
+      }
+    },
+    "Switch to workspace %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到工作区 %@"
+          }
+        }
+      }
+    },
+    "No images yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有图片"
+          }
+        }
+      }
+    },
+    "Screenshots the agent's browser and computer tools capture — and images added from your phone — show up here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的浏览器和电脑工具截取的屏幕，以及从手机添加的图片，会显示在这里。"
+          }
+        }
+      }
+    },
+    "Back to gallery": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回画廊"
+          }
+        }
+      }
+    },
+    "Take screenshot": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截取屏幕"
+          }
+        }
+      }
+    },
+    "Arrow color": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "箭头颜色"
+          }
+        }
+      }
+    },
+    "Drag on the image to draw": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在图片上拖动以绘制"
+          }
+        }
+      }
+    },
+    "Drag on the image to select the crop": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在图片上拖动以框选裁剪区域"
+          }
+        }
+      }
+    },
+    "Apply": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用"
+          }
+        }
+      }
+    },
+    "Arrows": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "箭头"
+          }
+        }
+      }
+    },
+    "Crop": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裁剪"
+          }
+        }
+      }
+    },
+    "Clear markup": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除标注"
+          }
+        }
+      }
+    },
+    "Add to prompt attaches the annotated copy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到提示会附上标注后的副本"
+          }
+        }
+      }
+    },
+    "Select project folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择项目文件夹"
+          }
+        }
+      }
+    },
+    "Parent folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上层文件夹"
+          }
+        }
+      }
+    },
+    "Folder path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹路径"
+          }
+        }
+      }
+    },
+    "Go": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往"
+          }
+        }
+      }
+    },
+    "Show hidden folders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示隐藏文件夹"
+          }
+        }
+      }
+    },
+    "More": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多"
+          }
+        }
+      }
+    },
+    "New Folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
+          }
+        }
+      }
+    },
+    "Folder name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹名称"
+          }
+        }
+      }
+    },
+    "No projects yet. Projects added on %@ appear here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有项目。在 %@ 上添加的项目会显示在这里。"
+          }
+        }
+      }
+    },
+    "About Unpeel Link": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于 Unpeel Link"
+          }
+        }
+      }
+    },
+    "Disconnected — showing the last known Host state.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开 — 显示 Host 上次已知的状态。"
+          }
+        }
+      }
+    },
+    "Connecting — showing the last known Host state.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接 — 显示 Host 上次已知的状态。"
+          }
+        }
+      }
+    },
+    "Connection interrupted — reconnecting while the last known state stays visible.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接中断 — 正在重连，并保留上次已知的状态。"
+          }
+        }
+      }
+    },
+    "This pairing is no longer valid. Pair the Host again before sending input.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此配对已失效。发送输入前请重新配对 Host。"
+          }
+        }
+      }
+    },
+    "This Host uses an incompatible protocol. Update Unpeel on both devices.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Host 协议不兼容。请同时更新两台设备上的 Unpeel。"
+          }
+        }
+      }
+    },
+    "Host offline — showing the last known state.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host 离线 — 显示上次已知的状态。"
+          }
+        }
+      }
+    },
+    "Host service starting…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host 服务正在启动…"
+          }
+        }
+      }
+    },
+    "Host service unavailable — terminals cannot be created until it answers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host 服务不可用 — 在它响应之前无法新建终端。"
+          }
+        }
+      }
+    },
+    "Retry": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        }
+      }
+    },
+    "Open local site": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本地站点"
+          }
+        }
+      }
+    },
+    "Choose local site": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择本地站点"
+          }
+        }
+      }
+    },
+    "Open %@ in browser": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在浏览器中打开 %@"
+          }
+        }
+      }
+    },
+    "Local sites (%ld)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地站点（%ld）"
+          }
+        }
+      }
+    },
+    "Stop %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 %@"
+          }
+        }
+      }
+    },
+    "Open in %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 %@ 打开"
+          }
+        }
+      }
+    },
+    "Choose app": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择应用"
+          }
+        }
+      }
+    },
+    "Session unavailable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话不可用"
+          }
+        }
+      }
+    },
+    "Terminal fitted to another device (%ld×%ld) — fit to desktop": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端已适配另一台设备（%ld×%ld）— 适配到桌面"
+          }
+        }
+      }
+    },
+    "Fit to desktop": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适配到桌面"
+          }
+        }
+      }
+    },
+    "%ld viewing device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%ld 台设备正在查看"
+          }
+        }
+      }
+    },
+    "%ld viewing devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%ld 台设备正在查看"
+          }
+        }
+      }
+    },
+    "%@ — viewing this terminal": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — 正在查看此终端"
+          }
+        }
+      }
+    },
+    "%@, viewing this terminal": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，正在查看此终端"
+          }
+        }
+      }
+    },
+    "%ld more waiting": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 %ld 个等待处理"
+          }
+        }
+      }
+    },
+    "Don't Allow": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允许"
+          }
+        }
+      }
+    },
+    "Disconnected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开"
+          }
+        }
+      }
+    },
+    "This Host is not connected.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Host 未连接。"
+          }
+        }
+      }
+    },
+    "Connecting…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        }
+      }
+    },
+    "Connecting to this Host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接此 Host。"
+          }
+        }
+      }
+    },
+    "Connected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        }
+      }
+    },
+    "Reconnecting…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重连…"
+          }
+        }
+      }
+    },
+    "Pair again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新配对"
+          }
+        }
+      }
+    },
+    "Update required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        }
+      }
+    },
+    "Loading Sessions from %@…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在从 %@ 加载会话…"
+          }
+        }
+      }
+    },
+    "Direct connections only reach this Mac on the same network, or on a Tailscale network shared by both Macs. This Host is scoped to Direct only — allow Unpeel Link for it in Settings ▸ Remote (and enroll Link on that Mac) to reach it from anywhere.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接连接只能在同一网络，或两台 Mac 共用的 Tailscale 网络上到达这台 Mac。此 Host 仅允许直接连接 — 在「设置 ▸ 远程」里为它允许 Unpeel Link（并在那台 Mac 上登记 Link），即可从任何地方连接。"
+          }
+        }
+      }
+    },
+    "Not reachable directly, and Unpeel Link is not carrying it either. From another network this needs Link enrolled on that Mac (Unpeel ▸ Settings ▸ Remote), or a Tailscale network shared by both Macs.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接连接不到，Unpeel Link 也没有接上。从其他网络连接时，需要在那台 Mac 上登记 Link（Unpeel ▸ 设置 ▸ 远程），或让两台 Mac 使用同一个 Tailscale 网络。"
+          }
+        }
+      }
+    },
+    "Resume agent in this terminal": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此终端恢复代理"
+          }
+        }
+      }
+    },
+    "Resume session (continues the conversation)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复会话（继续该对话）"
+          }
+        }
+      }
+    },
+    "%@ paired with %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已与 %@ 配对"
+          }
+        }
+      }
+    },
+    "Both": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两个都要"
+          }
+        }
+      }
+    },
+    "Change connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改连接方式"
+          }
+        }
+      }
+    },
+    "Checking whether this Mac can open that address…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查这台 Mac 能不能连上这个地址…"
+          }
+        }
+      }
+    },
+    "Choose how this code connects": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个配对码怎么连"
+          }
+        }
+      }
+    },
+    "Enter the public IPv4 address and the forwarded port.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写公网 IPv4 地址和转发端口。"
+          }
+        }
+      }
+    },
+    "Local network": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网"
+          }
+        }
+      }
+    },
+    "Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
+        }
+      }
+    },
+    "Public IP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公网 IP"
+          }
+        }
+      }
+    },
+    "Public address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公网"
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "The code carries only the public address. Fill in the IP and port. This Mac checks that it can open them before saving.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码里只有公网地址。填好 IP 和端口后，这台 Mac 会先检查自己能不能连上，连上才允许保存。"
+          }
+        }
+      }
+    },
+    "The code carries this Mac's local address.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对码里是这台 Mac 的局域网地址。"
+          }
+        }
+      }
+    },
+    "The code keeps this Mac's local address, so an iPhone scans it as before. An Android phone also remembers the public address, uses it when the local network does not answer, and switches back as soon as the local network does.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "二维码仍是这台 Mac 的局域网地址，iPhone 照旧扫描。安卓还会记下公网地址：局域网不通时走公网，并继续探测，局域网一恢复就立刻切回去。"
+          }
+        }
+      }
+    },
+    "The live terminal is listening on %d. Forward that port as well, or a public connection falls back to ordinary fetching.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端实时通道正在监听 %d。这个端口也要转发，否则公网会退回普通拉取。"
+          }
+        }
+      }
+    },
+    "The live terminal uses a second port. Until that port is forwarded, public connections fall back to ordinary fetching.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端实时通道用另一个端口。这个端口没做转发时，公网会退回普通拉取。"
+          }
+        }
+      }
+    },
+    "The phone uses the local network when it can, switches to the public address when it cannot, and comes back when the local network answers again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "能走局域网就走局域网。局域网不通时改走公网，并继续探测局域网，一旦可用就回到局域网。"
+          }
+        }
+      }
+    },
+    "This Mac can reach that address.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 能连上这个地址。"
+          }
+        }
+      }
+    },
+    "This Mac could not open that address. The IP and port have to reach this Mac's pairing service.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 连不上这个地址。请确认 IP 和端口能到达这台 Mac 的配对服务。"
+          }
+        }
+      }
+    },
+    "This Mac's pairing service has not opened a port yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的配对服务还没有打开端口。"
+          }
+        }
+      }
+    },
+    "This Mac's pairing service is listening on %d. Forward the public port to it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的配对服务正在监听 %d。公网端口要转发到这个端口。"
           }
         }
       }

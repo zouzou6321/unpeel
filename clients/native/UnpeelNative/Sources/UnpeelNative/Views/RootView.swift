@@ -16,6 +16,20 @@
 
 import SwiftUI
 
+/// System keeps the Mac's own locale, so en_GB and nb_NO still format dates
+/// and numbers for that region. An explicit language sets the locale.
+private struct ChosenLanguageLocale: ViewModifier {
+    @ObservedObject var localization: LocalizationStore
+
+    func body(content: Content) -> some View {
+        if localization.preference == .system {
+            content
+        } else {
+            content.environment(\.locale, localization.effectiveLocale)
+        }
+    }
+}
+
 struct RootView: View {
     @ObservedObject var store: UnpeelStore
     @ObservedObject var cache: SurfaceCache
@@ -117,7 +131,7 @@ struct RootView: View {
             // as sidebar rows, so they can sort the split or land at an exact
             // sidebar insertion gap with one continuous gesture.
             .environment(\.sidebarSessionDragController, sessionDragController)
-            .environment(\.locale, localization.effectiveLocale)
+            .modifier(ChosenLanguageLocale(localization: localization))
             .environmentObject(localization)
             // Force chrome that reads L10n at body-eval time to rebuild when
             // Settings ▸ Appearance ▸ Language changes.
@@ -354,7 +368,9 @@ struct RootView: View {
                 // are still all present in the dropdown itself.
                 onShowAll: store.selectedHostScope == .local
                     ? { store.openRecentActivity() }
-                    : nil
+                    : nil,
+                canMarkAllRead: { store.canMarkActivityItemsRead($0) },
+                onMarkAllRead: { store.markActivityItemsRead($0) }
             )
 
             if store.selectedHostScope == .local {
@@ -678,7 +694,7 @@ struct TitlebarNewSessionMenu: View {
         )
         .background(HoverReporter { hovering = $0 })
         .animation(.easeInOut(duration: 0.12), value: hovering)
-        .help("New session")
+        .help(L10n.t("New session"))
     }
 }
 
@@ -755,6 +771,8 @@ struct TitlebarActivityMenuButton: View {
     let onSelect: (GlobalActivityMenuItem) -> Void
     /// Footer link: opens the app-wide "All recent" page.
     let onShowAll: (() -> Void)?
+    let canMarkAllRead: ([GlobalActivityMenuItem]) -> Bool
+    let onMarkAllRead: ([GlobalActivityMenuItem]) -> Void
 
     @State private var hovering = false
     @State private var showing = false
@@ -812,7 +830,10 @@ struct TitlebarActivityMenuButton: View {
                 onShowAll: onShowAll.map { action in {
                     showing = false
                     action()
-                } }
+                } },
+                onMarkAllRead: canMarkAllRead(activity.finished)
+                    ? { onMarkAllRead(activity.finished) }
+                    : nil
             )
             .padding(6)
             .frame(width: 360)
@@ -838,6 +859,9 @@ struct ActivityMenuList: View {
     let onSelect: (GlobalActivityMenuItem) -> Void
     /// Footer link to the app-wide "All recent" page.
     let onShowAll: (() -> Void)?
+    /// Footer action clearing the Done group; nil when no Done row is
+    /// clearable from here (the row is hidden too while Done is empty).
+    var onMarkAllRead: (() -> Void)? = nil
 
     private var rowCount: Int { jobs.count + blockers.count + finished.count }
 
@@ -891,8 +915,19 @@ struct ActivityMenuList: View {
                 }
             }
             .frame(height: scrollHeight)
+            if let onMarkAllRead, !finished.isEmpty {
+                ActivityMenuFooterRow(
+                    title: "Mark all as read",
+                    systemImage: "checkmark",
+                    onSelect: onMarkAllRead
+                )
+            }
             if let onShowAll {
-                AllRecentMenuRow(onSelect: onShowAll)
+                ActivityMenuFooterRow(
+                    title: "All recent",
+                    systemImage: "chevron.right",
+                    onSelect: onShowAll
+                )
             }
         }
     }
@@ -918,10 +953,13 @@ struct ActivityMenuList: View {
     }
 }
 
-/// Footer row of the activity dropdowns: opens the app-wide "All recent"
-/// history page. Always present, even when nothing is active or unread —
-/// this is the bell's guaranteed path to history.
-private struct AllRecentMenuRow: View {
+/// Footer row of the activity dropdowns. "All recent" opens the app-wide
+/// history page and is always present, even when nothing is active or
+/// unread — the bell's guaranteed path to history. "Mark all as read"
+/// clears the Done group while it has rows.
+private struct ActivityMenuFooterRow: View {
+    let title: String
+    let systemImage: String
     let onSelect: () -> Void
 
     @State private var hovering = false
@@ -929,11 +967,11 @@ private struct AllRecentMenuRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 8) {
-                Text(L10n.t("All recent"))
+                Text(L10n.t(title))
                     .font(.system(size: 13))
                     .foregroundStyle(hovering ? Theme.foreground : Theme.mutedForeground)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
+                Image(systemName: systemImage)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.mutedForeground)
             }
@@ -1008,7 +1046,7 @@ private struct TitlebarActivityMenuRow: View {
                         .truncationMode(.tail)
                     Group {
                         if let alertBody, !alertBody.isEmpty {
-                            Text("Alert · \(alertBody)")
+                            Text(L10n.format("Alert · %@", alertBody))
                                 .foregroundStyle(Theme.mutedForeground)
                                 .truncationMode(.tail)
                         } else {
@@ -1033,18 +1071,18 @@ private struct TitlebarActivityMenuRow: View {
 
                 // Trailing: CLI logo while working or finished, else status.
                 if blocked {
-                    Text("Blocked")
+                    Text(L10n.t("Blocked"))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.attention)
                 } else if unread, alertBody != nil {
-                    Text("Alert")
+                    Text(L10n.t("Alert"))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.unread)
                 } else if working || unread {
                     ToolIconView(command: command, size: 16)
                         .frame(width: 16, height: 16)
                 } else if status == "Starting" || status == "Restarting" || status == "Resuming" {
-                    Text(status)
+                    Text(L10n.t(status))
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.mutedForeground)
                 }
