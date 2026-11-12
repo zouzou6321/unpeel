@@ -82,6 +82,8 @@ data class WorkspaceSummary(
     val name: String,
     val isCurrent: Boolean,
     val kind: String,
+    /** App-color hue in degrees. Null is the neutral dot. */
+    val tintHue: Double? = null,
 )
 
 data class ArtifactSummary(
@@ -186,6 +188,7 @@ object BootstrapJson {
                     name = it.optString("name"),
                     isCurrent = it.optBoolean("isCurrent"),
                     kind = it.optString("kind").ifEmpty { "local" },
+                    tintHue = if (it.has("tintHue") && !it.isNull("tintHue")) it.optDouble("tintHue") else null,
                 )
             },
             hostDeviceModel = json.optString("hostDeviceModel").ifEmpty { null },

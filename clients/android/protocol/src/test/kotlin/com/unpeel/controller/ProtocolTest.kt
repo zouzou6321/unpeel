@@ -109,6 +109,7 @@ class ProtocolTest {
         assertEquals(true, snapshot.sessions.single().pinned)
         assertEquals(1L, snapshot.sessions.single().updatedAtUnixMs)
         assertEquals("default", snapshot.workspaces.single().name)
+        assertNull(snapshot.workspaces.single().tintHue)
         assertNull(snapshot.hostTintHue)
         assertFalse(snapshot.experimentalWorktreesEnabled)
         assertNull(snapshot.sessions.single().capabilities)
