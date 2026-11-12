@@ -139,8 +139,14 @@ public final class TerminalRenderer {
                 // Only a glyph wider than its cells is scaled, and only down.
                 // Scaling a narrower CJK fallback up to two cells is the fat look.
                 final boolean fontWidthMismatch = !drawnShape && (missingGlyph || measuredCodePointWidth > mFontWidth * codePointWcWidth + 0.5f);
+                // One code point per run. A packed run uses the font's own
+                // advance, and CJK is narrower than its two cells. That slack
+                // used to pile up as a black hole immediately before the cursor.
+                // Drawing each glyph at its column leaves only the gap inside
+                // that glyph's own cells.
+                final boolean placeAtColumn = lastRunStartColumn != column;
 
-                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch || missingGlyph != lastRunMissingGlyph || drawnShape != lastRunDrawnShape) {
+                if (placeAtColumn || style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch || missingGlyph != lastRunMissingGlyph || drawnShape != lastRunDrawnShape) {
                     if (column == 0) {
                         // Skip first column as there is nothing to draw, just record the current style.
                     } else {
