@@ -3,6 +3,7 @@ package com.termux.view;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Rect;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.util.SparseIntArray;
@@ -29,6 +30,8 @@ public final class TerminalRenderer {
     private final SparseIntArray glyphCache = new SparseIntArray(64);
     /** Claude's ⏵ is missing from the phone fonts, so it is drawn as a triangle. */
     private final Path mShapePath = new Path();
+    /** Reused ink bounds so a circle can be kept inside its own cell. */
+    private final Rect mInkBounds = new Rect();
     private static final int PROMPT_TRIANGLE = 0x23F5;
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
@@ -230,12 +233,6 @@ public final class TerminalRenderer {
         float right = left + runWidthColumns * mFontWidth;
         final float cellRight = right;
 
-        mes = mes / mFontWidth;
-        // A glyph wider than its cells shrinks on both axes. Scaling X alone
-        // turns a circle into an oval. Narrower glyphs stay at their own size.
-        final boolean fitBothAxes = mes > runWidthColumns + 0.01f;
-        final float fitScale = fitBothAxes ? runWidthColumns / mes : 1f;
-
         if (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND]) {
             // Only draw non-default background.
             mTextPaint.setColor(backColor);
@@ -283,16 +280,31 @@ public final class TerminalRenderer {
                 mFallbackPaint.setStrikeThruText(strikeThrough);
                 paint = mFallbackPaint;
             }
-            if (fitBothAxes) {
-                float cx = (left + cellRight) * 0.5f;
-                float cy = y - mFontLineSpacing * 0.5f;
-                canvas.save();
-                canvas.translate(cx, cy);
-                canvas.scale(fitScale, fitScale);
-                canvas.translate(-cx, -cy);
+            // Advance can fit the cell while the ink still hangs into the
+            // previous one. Keep that ink inside the cell. Scale both axes
+            // together when it is wider than the cell, so a circle stays round.
+            paint.getTextBounds(text, startCharIndex, runWidthChars, mInkBounds);
+            float inkLeft = mInkBounds.left;
+            float inkRight = mInkBounds.right;
+            float inkWidth = inkRight - inkLeft;
+            float cellWidth = cellRight - left;
+            float drawX = left;
+            boolean savedMatrix = false;
+            if (inkWidth > 1f && (inkLeft < -0.5f || inkRight > cellWidth + 0.5f)) {
+                float scale = Math.min(1f, cellWidth / inkWidth);
+                drawX = left + (cellWidth - inkLeft - inkRight) * 0.5f;
+                if (scale < 0.999f) {
+                    float cx = left + cellWidth * 0.5f;
+                    float cy = y - mFontLineSpacing * 0.5f;
+                    canvas.save();
+                    canvas.translate(cx, cy);
+                    canvas.scale(scale, scale);
+                    canvas.translate(-cx, -cy);
+                    savedMatrix = true;
+                }
             }
-            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, paint);
-            if (fitBothAxes) canvas.restore();
+            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, drawX, y - mFontLineSpacingAndAscent, false, paint);
+            if (savedMatrix) canvas.restore();
         }
     }
 
