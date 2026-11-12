@@ -147,6 +147,7 @@ class ProtocolTest {
         val index = sidebarIndex(snapshot)
         assertEquals(listOf("p"), index.folderGroups.single().projects.map { it.id })
         assertEquals(listOf("loose"), index.looseProjects.map { it.id })
+        assertEquals(listOf("f", "empty"), snapshot.folders.map { it.id })
         assertEquals(setOf("s2"), index.hoistedSessionIDs)
         assertEquals(setOf("wt", "grp"), index.childrenByParent["p"].orEmpty().map { it.id }.toSet())
         assertEquals(setOf("s1", "s2"), index.sessionsByProject["p"].orEmpty().map { it.id }.toSet())
@@ -189,6 +190,33 @@ class ProtocolTest {
         val observed = snapshot.sessions.first { it.id == "s4" }
         assertEquals(ResumeOffer.None, resumeOffer(observed, snapshot.capabilities))
         assertTrue(AgentCatalog.supportsTranscript(null, "claude"))
+    }
+
+    @Test
+    fun sidebarKeepsHostArrayOrderAheadOfSortOrder() {
+        val snapshot = BootstrapJson.parse(
+            """
+            {"folders":[
+               {"id":"later","name":"Later","sortOrder":0},
+               {"id":"sooner","name":"Sooner","sortOrder":9}
+             ],
+             "projects":[
+               {"id":"z","name":"Z","sortOrder":0},
+               {"id":"a","name":"A","folderID":"sooner","sortOrder":5},
+               {"id":"m","name":"M","folderID":"sooner","sortOrder":1},
+               {"id":"child-b","name":"B","parentProjectID":"z","worktreeBranch":"b","sortOrder":0},
+               {"id":"child-a","name":"A","parentProjectID":"z","worktreeBranch":"a","sortOrder":3}
+             ],
+             "sessions":[]}
+            """.trimIndent(),
+        )
+        assertEquals(listOf("later", "sooner"), snapshot.folders.map { it.id })
+        assertEquals(listOf("z", "a", "m", "child-b", "child-a"), snapshot.projects.map { it.id })
+        val index = sidebarIndex(snapshot)
+        assertEquals(listOf("z"), index.looseProjects.map { it.id })
+        assertEquals(listOf("sooner"), index.folderGroups.map { it.folder.id })
+        assertEquals(listOf("a", "m"), index.folderGroups.single().projects.map { it.id })
+        assertEquals(listOf("child-b", "child-a"), index.childrenByParent["z"].orEmpty().map { it.id })
     }
 
     @Test

@@ -142,7 +142,10 @@ object BootstrapJson {
                     parentFolderID = it.optString("parentFolderID").ifEmpty { null },
                     colorID = it.optString("colorID").ifEmpty { null },
                 )
-            }.sortedBy { it.sortOrder },
+            },
+            // Host array order is the sidebar order, same as iOS. sortOrder
+            // can still be the file rank from before a drag, so re-sorting
+            // by it scrambles the list the Mac already published.
             projects = json.optJSONArray("projects").objects().map {
                 ProjectSummary(
                     id = it.getString("id"),
@@ -161,7 +164,7 @@ object BootstrapJson {
                         (0 until order.length()).map { index -> order.optString(index) }.filter { id -> id.isNotEmpty() }
                     },
                 )
-            }.sortedBy { it.sortOrder },
+            },
             presets = json.optJSONArray("presets").objects().map {
                 PresetSummary(
                     id = it.getString("id"),
