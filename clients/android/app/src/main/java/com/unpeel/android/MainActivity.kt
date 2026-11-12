@@ -17,7 +17,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        controller?.releasePhoneFit()
+        // Rotation stays on this activity (configChanges). A real finish must
+        // stop the fit watch: the old one keeps posting the grid it measured
+        // and fights whatever the next activity fits.
+        controller?.close(revertFit = !isChangingConfigurations)
         controller = null
         super.onDestroy()
     }

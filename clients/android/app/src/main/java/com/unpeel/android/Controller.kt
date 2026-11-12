@@ -26,6 +26,7 @@ import com.unpeel.controller.b64d
 import com.unpeel.controller.sha256Hex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -428,6 +429,31 @@ class Controller(context: Context) {
                     revealOpening()
                 }
             }
+        }
+    }
+
+    /**
+     * Stop polling, the terminal stream, and the fit watch. [revertFit] tells
+     * the Host to drop the phone grid. A configuration change passes false:
+     * the same process is about to measure the new orientation, and a clear
+     * from this instance would race that fit.
+     */
+    fun close(revertFit: Boolean) {
+        pollJob?.cancel()
+        outputJob?.cancel()
+        outputGeneration += 1
+        fitWatchJob?.cancel()
+        stopGalleryWatch()
+        val revertSession = if (revertFit) phoneFitSession else null
+        val revertLink = if (revertFit) link else null
+        phoneFitGeneration += 1
+        phoneFitSession = null
+        phoneFitColumns = null
+        phoneFitRows = null
+        scope.cancel()
+        if (revertSession == null || revertLink == null) return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            revertPhoneFit(revertLink, revertSession)
         }
     }
 
