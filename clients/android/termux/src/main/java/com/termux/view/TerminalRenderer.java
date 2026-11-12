@@ -53,19 +53,11 @@ public final class TerminalRenderer {
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
         mFontLineSpacingAndAscent = mFontLineSpacing + mFontAscent;
-        // System monospace is about 0.6em. Half an em made CJK look thin.
-        // The midpoint flattened circles: a one-cell symbol is scaled on X
-        // only, so ○ got shorter across than it is tall. Half a line is the
-        // wider of the two and keeps that circle round.
-        float naturalWidth = mTextPaint.measureText("X");
-        float targetWidth = Math.max(textSize * 0.5f, mFontLineSpacing * 0.5f);
-        if (naturalWidth > targetWidth && targetWidth > 0f) {
-            mTextPaint.setTextScaleX(targetWidth / naturalWidth);
-        }
+        // Cell width is the font's own advance. Squeezing it, then fitting a
+        // circle on X only, is what made ○ flat.
         mFontWidth = mTextPaint.measureText("X");
         mFallbackPaint.set(mTextPaint);
         mFallbackPaint.setTypeface(Typeface.DEFAULT);
-        mFallbackPaint.setTextScaleX(1f);
 
         StringBuilder sb = new StringBuilder(" ");
         for (int i = 0; i < asciiMeasures.length; i++) {
@@ -236,18 +228,13 @@ public final class TerminalRenderer {
 
         float left = startColumn * mFontWidth;
         float right = left + runWidthColumns * mFontWidth;
+        final float cellRight = right;
 
         mes = mes / mFontWidth;
-        boolean savedMatrix = false;
-        // Missing symbols are fitted to the cell. A wider run is only scaled
-        // down, so a narrower CJK glyph is not stretched.
-        if (mes > 0.01f && (missingGlyph || mes > runWidthColumns + 0.01f)) {
-            canvas.save();
-            canvas.scale(runWidthColumns / mes, 1.f);
-            left *= mes / runWidthColumns;
-            right *= mes / runWidthColumns;
-            savedMatrix = true;
-        }
+        // A glyph wider than its cells shrinks on both axes. Scaling X alone
+        // turns a circle into an oval. Narrower glyphs stay at their own size.
+        final boolean fitBothAxes = mes > runWidthColumns + 0.01f;
+        final float fitScale = fitBothAxes ? runWidthColumns / mes : 1f;
 
         if (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND]) {
             // Only draw non-default background.
@@ -283,7 +270,6 @@ public final class TerminalRenderer {
             mTextPaint.setColor(foreColor);
             if (drawnShape) {
                 drawPromptTriangles(canvas, left, y, runWidthColumns);
-                if (savedMatrix) canvas.restore();
                 return;
             }
 
@@ -297,10 +283,17 @@ public final class TerminalRenderer {
                 mFallbackPaint.setStrikeThruText(strikeThrough);
                 paint = mFallbackPaint;
             }
+            if (fitBothAxes) {
+                float cx = (left + cellRight) * 0.5f;
+                float cy = y - mFontLineSpacing * 0.5f;
+                canvas.save();
+                canvas.translate(cx, cy);
+                canvas.scale(fitScale, fitScale);
+                canvas.translate(-cx, -cy);
+            }
             canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, paint);
+            if (fitBothAxes) canvas.restore();
         }
-
-        if (savedMatrix) canvas.restore();
     }
 
     /** One right-pointing triangle per cell. Phone fonts have no glyph for U+23F5. */
