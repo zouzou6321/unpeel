@@ -694,10 +694,9 @@ private fun Modifier.closeSessionsDrawer(
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val tracker = VelocityTracker()
-            tracker.addPosition(down.uptimeMillis, down.position)
+            tracker.addPosition(down.uptimeMillis, Offset.Zero)
             var totalX = 0f
             var totalY = 0f
-            var last = down.position
             var decided = false
             var slide = false
             var finished = false
@@ -705,10 +704,17 @@ private fun Modifier.closeSessionsDrawer(
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    totalX += change.position.x - last.x
-                    totalY += change.position.y - last.y
-                    last = change.position
-                    tracker.addPosition(change.uptimeMillis, change.position)
+                    // position is local to the drawer, and the drawer moves
+                    // under the finger. previousPosition is already in this
+                    // event's coordinates, so the difference is the finger,
+                    // not the drawer's own shift. Subtracting a stored point
+                    // from the last event made a slow drag shake left and right.
+                    val previous = change.previousPosition
+                    if (previous != Offset.Unspecified) {
+                        totalX += change.position.x - previous.x
+                        totalY += change.position.y - previous.y
+                    }
+                    tracker.addPosition(change.uptimeMillis, Offset(totalX, totalY))
                     if (!decided) {
                         if (abs(totalX) < slop && abs(totalY) < slop) {
                             if (!change.pressed) break
