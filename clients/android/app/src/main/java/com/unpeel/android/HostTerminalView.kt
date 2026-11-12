@@ -263,7 +263,7 @@ class HostTerminalView(
     })
 
     init {
-        val textPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, resources.displayMetrics)
+        val textPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, resources.displayMetrics)
             .roundToInt()
             .coerceAtLeast(8)
         val metrics = TerminalMetrics(textPx)
