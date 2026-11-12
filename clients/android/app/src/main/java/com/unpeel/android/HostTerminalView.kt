@@ -49,6 +49,8 @@ class HostTerminalView(
     var onMenuChanged: ((Boolean) -> Unit)? = null
     /** Claude, Grok, or OpenCode, for the wheel guess before modes arrive. */
     var prefersRemoteWheel: Boolean = false
+    /** Cursor-like agents scroll the local copy and do not move the shared session. */
+    var localWindowScroll: Boolean = false
     /** Link relay. iOS shortens the release glide on that path. */
     var relayed: Boolean = false
     var canvasColor: Int = CANVAS
@@ -549,6 +551,7 @@ class HostTerminalView(
             alternateScreen = emulator.isAlternateBufferActive(),
             sawMouseOrAlternateDisable = terminal.sawMouseOrAlternateDisable,
             prefersRemoteMouseWheel = prefersRemoteWheel,
+            localWindow = localWindowScroll,
         )
     }
 

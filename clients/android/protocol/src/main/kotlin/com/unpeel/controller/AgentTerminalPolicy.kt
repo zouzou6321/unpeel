@@ -44,13 +44,27 @@ object AgentTerminalPolicy {
         return head.isNotEmpty() && head in remoteMouseWheelProviders
     }
 
+    /**
+     * Cursor-like agents already have the window on the phone. Scrolling
+     * stays on that copy and is not written into the shared session.
+     * Claude, Grok, and OpenCode still own the wheel.
+     */
+    fun scrollsLocalWindow(providerID: String?, command: String, activeRuntimeID: String?): Boolean {
+        if (prefersRemoteMouseWheel(providerID, command, activeRuntimeID)) return false
+        if (AgentCatalog.isAgent(providerID, command)) return true
+        val runtime = activeRuntimeID?.trim()?.lowercase().orEmpty()
+        return runtime.isNotEmpty() && AgentCatalog.isAgent(runtime, runtime)
+    }
+
     fun wheelForwarding(
         modesKnown: Boolean,
         mouseTracking: Boolean,
         alternateScreen: Boolean,
         sawMouseOrAlternateDisable: Boolean,
         prefersRemoteMouseWheel: Boolean,
+        localWindow: Boolean = false,
     ): Wheel {
+        if (localWindow) return Wheel.None
         if (mouseTracking) return Wheel.Mouse
         if (alternateScreen) return Wheel.AlternateScroll
         if (modesKnown) return Wheel.None

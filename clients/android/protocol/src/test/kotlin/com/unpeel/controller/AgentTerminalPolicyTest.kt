@@ -83,6 +83,33 @@ class AgentTerminalPolicyTest {
     }
 
     @Test
+    fun cursorScrollsLocallyEvenWhenTheProgramTracksTheMouse() {
+        assertEquals(
+            AgentTerminalPolicy.Wheel.None,
+            AgentTerminalPolicy.wheelForwarding(
+                modesKnown = true,
+                mouseTracking = true,
+                alternateScreen = true,
+                sawMouseOrAlternateDisable = false,
+                prefersRemoteMouseWheel = false,
+                localWindow = true,
+            ),
+        )
+    }
+
+    @Test
+    fun cursorLikeAgentsScrollLocallyAndClaudeDoesNot() {
+        assertTrue(AgentTerminalPolicy.scrollsLocalWindow(null, "cursor-agent --force", null))
+        assertTrue(AgentTerminalPolicy.scrollsLocalWindow("codex", "codex", null))
+        assertTrue(AgentTerminalPolicy.scrollsLocalWindow(null, "/bin/zsh", "cursor"))
+        assertFalse(AgentTerminalPolicy.scrollsLocalWindow(null, "claude", null))
+        assertFalse(AgentTerminalPolicy.scrollsLocalWindow(null, "/bin/zsh", "claude"))
+        assertFalse(AgentTerminalPolicy.scrollsLocalWindow("grok", "grok", null))
+        assertFalse(AgentTerminalPolicy.scrollsLocalWindow("opencode", "opencode", null))
+        assertFalse(AgentTerminalPolicy.scrollsLocalWindow(null, "/bin/zsh", null))
+    }
+
+    @Test
     fun onlyClaudeGrokAndOpenCodeAreGuessed() {
         assertTrue(AgentTerminalPolicy.prefersRemoteMouseWheel(null, "/bin/zsh", "Claude"))
         assertTrue(AgentTerminalPolicy.prefersRemoteMouseWheel("claude", "/bin/zsh", null))

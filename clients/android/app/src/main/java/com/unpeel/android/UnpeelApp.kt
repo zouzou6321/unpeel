@@ -893,6 +893,11 @@ private fun ColumnScope.TerminalGrid(
                     openSession?.command.orEmpty(),
                     openSession?.activeRuntimeID,
                 )
+                view.localWindowScroll = AgentTerminalPolicy.scrollsLocalWindow(
+                    openSession?.providerID,
+                    openSession?.command.orEmpty(),
+                    openSession?.activeRuntimeID,
+                )
                 shownTerminal.applyCanvas(canvas)
                 view.canvasColor = canvas
                 view.bind(shownTerminal)
