@@ -10,7 +10,12 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -23,7 +28,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +83,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +95,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -439,9 +447,21 @@ private fun TerminalSurface(
         }
     }
     DisposableEffect(session.id) { onDispose { controller.releasePhoneFit() } }
+    // Hidden per session. A new session shows its title again. The bar leaves
+    // the layout when it collapses, so the phone grid picks up the extra rows
+    // once the height settles. A swipe on the terminal itself stays scroll.
+    var chromeVisible by remember(session.id) { mutableStateOf(true) }
     Column(Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = chromeVisible,
+            enter = expandVertically(animationSpec = tween(180)) + fadeIn(tween(180)),
+            exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(tween(120)),
+        ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
+            Modifier
+                .fillMaxWidth()
+                .collapseWhenSwipedUp { chromeVisible = false }
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             GlassButton(onClick = onSessions) { Text("≡", color = Foreground, fontSize = 18.sp) }
@@ -483,11 +503,14 @@ private fun TerminalSurface(
                 if (spinning) BrailleSpinner(if (blocked) Attention else Foreground) else Text("🔔", fontSize = 14.sp)
             }
         }
+        }
         TerminalGrid(
             controller,
             onView = { terminalView = it },
             controlArmed = { ctrlArmed },
             onControlUsed = { ctrlArmed = false },
+            revealChrome = !chromeVisible,
+            onRevealChrome = { chromeVisible = true },
         )
         Column(Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         controller.error?.let { message ->
@@ -522,12 +545,84 @@ private fun TerminalSurface(
     }
 }
 
+/**
+ * Up-swipe hides the session bar. The drag has to win over a tap, and it has
+ * to be more vertical than horizontal, so the menu buttons and the drawer
+ * edge still get their own gestures. The terminal below this bar is not a
+ * collapse target: that drag is scrollback.
+ */
+@Composable
+private fun Modifier.collapseWhenSwipedUp(onCollapse: () -> Unit): Modifier {
+    val current = rememberUpdatedState(onCollapse)
+    return pointerInput(Unit) {
+        val threshold = 32.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val origin = down.position
+            var totalY = 0f
+            var fired = false
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
+                totalY += change.position.y - change.previousPosition.y
+                val dx = change.position.x - origin.x
+                if (!fired && totalY < -threshold && kotlin.math.abs(totalY) > kotlin.math.abs(dx)) {
+                    fired = true
+                    change.consume()
+                    current.value()
+                } else if (fired) {
+                    change.consume()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The hidden bar comes back from this strip only. A downward swipe on the
+ * rest of the terminal stays scrollback, pinch, or a cursor drag.
+ */
+@Composable
+private fun Modifier.restoreSessionChrome(onReveal: () -> Unit): Modifier {
+    val current = rememberUpdatedState(onReveal)
+    return pointerInput(Unit) {
+        val slop = viewConfiguration.touchSlop
+        val threshold = 20.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown()
+            val origin = down.position
+            var totalY = 0f
+            var fired = false
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (change.changedToUpIgnoreConsumed()) {
+                    val dx = change.position.x - origin.x
+                    val dy = change.position.y - origin.y
+                    if (!fired && dx * dx + dy * dy <= slop * slop) current.value()
+                    break
+                }
+                if (!change.pressed) break
+                totalY += change.position.y - change.previousPosition.y
+                change.consume()
+                if (!fired && totalY > threshold) {
+                    fired = true
+                    current.value()
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ColumnScope.TerminalGrid(
     controller: Controller,
     onView: (HostTerminalView) -> Unit,
     controlArmed: () -> Boolean,
     onControlUsed: () -> Unit,
+    revealChrome: Boolean = false,
+    onRevealChrome: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
@@ -600,6 +695,26 @@ private fun ColumnScope.TerminalGrid(
                 onView(view)
             },
         )
+        if (revealChrome && !selecting && !controller.sessionPreparing) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(1f)
+                    .fillMaxWidth()
+                    .height(28.dp)
+                    .restoreSessionChrome(onRevealChrome),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .border(1.dp, Color.White.copy(alpha = 0.72f), RoundedCornerShape(2.dp)),
+                )
+            }
+        }
         if (selecting) {
             Row(
                 Modifier

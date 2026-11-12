@@ -11,7 +11,9 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -20,6 +22,7 @@ import com.termux.terminal.TerminalEmulator
 import com.termux.view.TerminalMetrics
 import com.termux.view.TerminalRenderer
 import com.unpeel.controller.AgentTerminalPolicy
+import com.unpeel.controller.CursorMotion
 import com.unpeel.controller.TerminalInput
 import kotlin.math.abs
 import kotlin.math.min
@@ -27,7 +30,9 @@ import kotlin.math.roundToInt
 
 /**
  * Draws a Host terminal and takes the keyboard. Committed characters go
- * straight to the session. This view never changes the PTY size.
+ * straight to the session. This view never changes the PTY size. A pinch
+ * magnifies that same grid. A drag that starts on the cursor walks it
+ * with arrow keys; the remote program is what actually moves it.
  */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class HostTerminalView(
@@ -107,6 +112,19 @@ class HostTerminalView(
     private var selY2 = -1
     private var blinkOn = true
     private var menuActive = false
+    /** Visual magnification. The PTY grid stays the phone-fit size. */
+    private var zoom = 1f
+    private var zoomPanX = 0f
+    private var zoomPanY = 0f
+    private var pinching = false
+    private var downX = 0f
+    private var downY = 0f
+    private var downOnCursor = false
+    private var gestureDecided = false
+    private var cursorDrag = false
+    private var placedCol = 0
+    private var placedRow = 0
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
     private val frameListener: () -> Unit = {
         noteEmulator(terminal.emulator)
@@ -146,6 +164,11 @@ class HostTerminalView(
             removeCallbacks(flingTick)
             stopGlide()
             wheelRemainder = 0f
+            downX = e.x
+            downY = e.y
+            downOnCursor = tapTargetsCursor(terminal.emulator, e)
+            gestureDecided = false
+            cursorDrag = false
             return true
         }
 
@@ -185,6 +208,29 @@ class HostTerminalView(
                 return true
             }
             val emulator = terminal.emulator
+            if (!gestureDecided) {
+                val dx = e2.x - downX
+                val dy = e2.y - downY
+                if (abs(dx) < touchSlop && abs(dy) < touchSlop) return true
+                gestureDecided = true
+                cursorDrag = wantsCursorDrag(emulator, dx, dy)
+                if (cursorDrag) {
+                    placedCol = emulator.cursorCol
+                    placedRow = emulator.cursorRow
+                }
+            }
+            if (cursorDrag) {
+                moveCursor(emulator, e2)
+                return true
+            }
+            // A magnified view pans under one finger. Pinch back to 1 to scroll.
+            if (zoom > 1f) {
+                zoomPanX -= distanceX
+                zoomPanY -= distanceY
+                clampZoom()
+                invalidate()
+                return true
+            }
             // Finger down (negative distance) moves toward older rows.
             // The picture shifts with the finger immediately; a whole row
             // is committed only after the finger has travelled one cell.
@@ -200,7 +246,7 @@ class HostTerminalView(
         }
 
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-            if (selecting || cellHeight <= 0) return false
+            if (selecting || cursorDrag || zoom > 1f || cellHeight <= 0) return false
             val emulator = terminal.emulator
             // velocityY is downward. A positive line count reveals newer rows.
             when (forwarding(emulator)) {
@@ -395,6 +441,25 @@ class HostTerminalView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             parent?.requestDisallowInterceptTouchEvent(true)
+            pinching = false
+        }
+        scaler.onTouchEvent(event)
+        if (event.pointerCount > 1 || scaler.isInProgress) {
+            if (!pinching) {
+                pinching = true
+                cursorDrag = false
+                val cancel = MotionEvent.obtain(event)
+                cancel.action = MotionEvent.ACTION_CANCEL
+                gesture.onTouchEvent(cancel)
+                cancel.recycle()
+            }
+            return true
+        }
+        if (pinching) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                pinching = false
+            }
+            return true
         }
         gesture.onTouchEvent(event)
         // GestureDetector does not deliver a drag that starts after the
@@ -415,6 +480,9 @@ class HostTerminalView(
         noteEmulator(emulator)
         canvas.drawColor(canvasColor)
         canvas.save()
+        canvas.translate(zoomPanX, zoomPanY)
+        canvas.scale(zoom, zoom)
+        canvas.save()
         val placed = place(emulator)
         topRow = placed.first
         val shift = if (forwarding(emulator) != AgentTerminalPolicy.Wheel.None) {
@@ -430,6 +498,7 @@ class HostTerminalView(
         } else {
             renderer.render(emulator, canvas, topRow, sel[0], sel[1], sel[2], sel[3])
         }
+        canvas.restore()
         canvas.restore()
     }
 
@@ -613,6 +682,63 @@ class HostTerminalView(
         return true
     }
 
+    private val scaler = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val next = (zoom * detector.scaleFactor).coerceIn(1f, MAX_ZOOM)
+            val focusX = detector.focusX
+            val focusY = detector.focusY
+            val contentX = (focusX - zoomPanX) / zoom
+            val contentY = (focusY - zoomPanY) / zoom
+            zoom = next
+            zoomPanX = focusX - contentX * zoom
+            zoomPanY = focusY - contentY * zoom
+            clampZoom()
+            invalidate()
+            return true
+        }
+    }).also { it.isQuickScaleEnabled = false }
+
+    /** A magnified picture stays inside the view. At 1× the pan is zero. */
+    private fun clampZoom() {
+        if (zoom <= 1f || width <= 0 || height <= 0) {
+            zoom = 1f
+            zoomPanX = 0f
+            zoomPanY = 0f
+            return
+        }
+        val minX = -(zoom - 1f) * width
+        val minY = -(zoom - 1f) * height
+        zoomPanX = zoomPanX.coerceIn(minX, 0f)
+        zoomPanY = zoomPanY.coerceIn(minY, 0f)
+    }
+
+    /**
+     * Drag that starts on the cursor. A shell only follows the finger along
+     * that row. A full-screen program follows it in both directions.
+     * Mouse-tracking programs keep the pointer.
+     */
+    private fun wantsCursorDrag(emulator: TerminalEmulator, dx: Float, dy: Float): Boolean {
+        if (!downOnCursor || selecting || offsetRows != 0 || emulator.isMouseTrackingActive()) return false
+        if (emulator.isAlternateBufferActive()) return true
+        return abs(dx) > abs(dy)
+    }
+
+    private fun moveCursor(emulator: TerminalEmulator, event: MotionEvent) {
+        val cell = cellAt(event.x, event.y) ?: return
+        val step = CursorMotion.step(
+            fromCol = placedCol,
+            fromRow = placedRow,
+            toCol = cell.first,
+            toRow = cell.second,
+            allowRows = emulator.isAlternateBufferActive(),
+            applicationCursor = emulator.isCursorKeysApplicationMode(),
+        )
+        if (step.keys.isEmpty()) return
+        placedCol = step.col
+        placedRow = step.row
+        onText?.invoke(step.keys)
+    }
+
     private fun tapTargetsCursor(emulator: TerminalEmulator, event: MotionEvent): Boolean {
         val cell = cellAt(event.x, event.y) ?: return false
         return kotlin.math.abs(cell.second - emulator.cursorRow) <= 1
@@ -660,8 +786,10 @@ class HostTerminalView(
     private fun cellAt(x: Float, y: Float): Pair<Int, Int>? {
         val emulator = terminal.emulator
         val placed = place(emulator)
-        val contentX = x - horizontalShift(emulator)
-        val contentY = y - placed.second
+        val viewX = (x - zoomPanX) / zoom
+        val viewY = (y - zoomPanY) / zoom
+        val contentX = viewX - horizontalShift(emulator)
+        val contentY = viewY - placed.second
         val localRow = ((contentY - topPad) / cellHeight).toInt()
         if (localRow < 0 || localRow >= emulator.mRows) return null
         val col = (contentX / cellWidth).toInt()
@@ -734,6 +862,7 @@ class HostTerminalView(
         const val GLIDE_BURST_RELAY = 5
         const val GLIDE_TICK_MS = 50L
         const val GLIDE_TICK_SECONDS = 0.05f
+        const val MAX_ZOOM = 3f
     }
 }
 
