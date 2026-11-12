@@ -12,7 +12,7 @@ android {
         applicationId = "com.unpeel.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
+        versionCode = 26
         versionName = "0.7.7"
     }
 

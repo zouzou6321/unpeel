@@ -53,11 +53,12 @@ public final class TerminalRenderer {
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
         mFontLineSpacingAndAscent = mFontLineSpacing + mFontAscent;
-        // System monospace is about 0.6em. Half an em made CJK look thin;
-        // half a line made it fat. Sit halfway between the two. CJK is not
-        // stretched to fill two cells.
+        // System monospace is about 0.6em. Half an em made CJK look thin.
+        // The midpoint flattened circles: a one-cell symbol is scaled on X
+        // only, so ○ got shorter across than it is tall. Half a line is the
+        // wider of the two and keeps that circle round.
         float naturalWidth = mTextPaint.measureText("X");
-        float targetWidth = (textSize * 0.5f + mFontLineSpacing * 0.5f) * 0.5f;
+        float targetWidth = Math.max(textSize * 0.5f, mFontLineSpacing * 0.5f);
         if (naturalWidth > targetWidth && targetWidth > 0f) {
             mTextPaint.setTextScaleX(targetWidth / naturalWidth);
         }
