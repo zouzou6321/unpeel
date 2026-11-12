@@ -34,8 +34,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -298,13 +298,13 @@ private fun TerminalHome(
             if (drawerPosition == target) return@LaunchedEffect
             animate(drawerPosition, target, animationSpec = tween(220)) { value, _ -> drawerPosition = value }
         }
-        fun dragBy(amount: Float) {
+        fun closeBy(totalX: Float) {
             drawerDragging = true
-            drawerPosition = (drawerPosition + amount).coerceIn(0f, drawerPx)
+            drawerPosition = (drawerPx + totalX).coerceIn(0f, drawerPx)
         }
-        fun releaseDrawer() {
-            drawerOpen = drawerPosition > drawerPx * 0.4f
+        fun releaseClose(dismiss: Boolean) {
             drawerDragging = false
+            drawerOpen = !dismiss
         }
         Box(
             Modifier
@@ -367,8 +367,8 @@ private fun TerminalHome(
                     controller = controller,
                     selectedID = controller.openSessionID,
                     width = drawerWidth,
-                    onDrag = ::dragBy,
-                    onRelease = ::releaseDrawer,
+                    onDrag = ::closeBy,
+                    onRelease = ::releaseClose,
                     onClose = {
                         drawerDragging = false
                         drawerOpen = false
@@ -673,6 +673,72 @@ private fun Modifier.revealSessionsDrawer(
 }
 
 /**
+ * iOS `closeDrag`: a horizontal drag on the open drawer follows the finger.
+ * The first move past 12dp decides once. Vertical stays a list scroll. A
+ * leftward drag of 80dp, or a flick that would carry 180dp, dismisses.
+ * Anything shorter springs back open.
+ */
+@Composable
+private fun Modifier.closeSessionsDrawer(
+    onMove: (Float) -> Unit,
+    onFinish: (Boolean) -> Unit,
+    onSlideLock: (Boolean) -> Unit,
+): Modifier {
+    val moveState = rememberUpdatedState(onMove)
+    val finishState = rememberUpdatedState(onFinish)
+    val lockState = rememberUpdatedState(onSlideLock)
+    return pointerInput(Unit) {
+        val slop = 12.dp.toPx()
+        val dismissPx = 80.dp.toPx()
+        val predictedPx = 180.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val tracker = VelocityTracker()
+            tracker.addPosition(down.uptimeMillis, down.position)
+            var totalX = 0f
+            var totalY = 0f
+            var last = down.position
+            var decided = false
+            var slide = false
+            var finished = false
+            try {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    totalX += change.position.x - last.x
+                    totalY += change.position.y - last.y
+                    last = change.position
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    if (!decided) {
+                        if (abs(totalX) < slop && abs(totalY) < slop) {
+                            if (!change.pressed) break
+                            continue
+                        }
+                        decided = true
+                        slide = abs(totalX) > abs(totalY)
+                        if (!slide) break
+                        lockState.value(true)
+                    }
+                    moveState.value(kotlin.math.min(0f, totalX))
+                    change.consume()
+                    if (!change.pressed) {
+                        val predicted = totalX + tracker.calculateVelocity().x * 0.15f
+                        finished = true
+                        finishState.value(totalX < -dismissPx || predicted < -predictedPx)
+                        break
+                    }
+                }
+            } finally {
+                if (slide) {
+                    lockState.value(false)
+                    if (!finished) finishState.value(false)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Up-swipe hides the session bar. The drag has to win over a tap, and it has
  * to be more vertical than horizontal, so the menu buttons and the drawer
  * edge still get their own gestures. The terminal below this bar is not a
@@ -957,7 +1023,7 @@ private fun SessionDrawer(
     selectedID: String?,
     width: Dp,
     onDrag: (Float) -> Unit,
-    onRelease: () -> Unit,
+    onRelease: (Boolean) -> Unit,
     onClose: () -> Unit,
     onWorkspaces: () -> Unit,
     onNewSession: (ProjectSummary) -> Unit,
@@ -965,6 +1031,8 @@ private fun SessionDrawer(
     onOrganizeProject: (ProjectSummary) -> Unit,
 ) {
     val snapshot = controller.snapshot
+    val listScroll = rememberScrollState()
+    var slideLock by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(setOf<String>()) }
     var openFolder by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedID, snapshot?.projects, snapshot?.sessions) {
@@ -982,13 +1050,11 @@ private fun SessionDrawer(
             .shadow(22.dp, RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp), clip = false)
             .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
             .background(hostChrome(snapshot?.hostTintHue))
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { _, amount -> onDrag(amount) },
-                    onDragEnd = { onRelease() },
-                    onDragCancel = { onRelease() },
-                )
-            },
+            .closeSessionsDrawer(
+                onMove = onDrag,
+                onFinish = onRelease,
+                onSlideLock = { slideLock = it },
+            ),
     ) {
     Column(Modifier.fillMaxSize()) {
         WorkspaceHeader(controller, onWorkspaces)
@@ -996,7 +1062,7 @@ private fun SessionDrawer(
             Modifier
                 .weight(1f)
                 .sidebarListFade()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(listScroll, enabled = !slideLock)
                 .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
         ) {
             if (snapshot == null) {
@@ -1247,36 +1313,40 @@ private fun ProjectBlock(
             }
         }
         Spacer(Modifier.width(7.dp))
-        Text(
-            project.name,
-            color = if (project.isGroup) Foreground else Foreground.copy(alpha = 0.62f),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        if (project.pinned == true) {
-            Spacer(Modifier.width(4.dp))
-            if (!SvgIcon("pin", 11.dp, tint = Muted)) Text("📌", fontSize = 11.sp)
-        }
-        val branch = project.worktreeBranch ?: project.gitBranch
-        if (!branch.isNullOrEmpty() && branch != project.name) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
-                BranchMark(12.dp, Muted.copy(alpha = 0.55f))
-                Spacer(Modifier.width(3.dp))
-                Text(
-                    branch,
-                    color = Muted.copy(alpha = 0.55f),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    modifier = Modifier.widthIn(max = 104.dp),
-                )
+        // Name, pin, and branch stay together on the left. Only this cluster
+        // is flexible, so the add button keeps one trailing edge on every row.
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                project.name,
+                color = if (project.isGroup) Foreground else Foreground.copy(alpha = 0.62f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (project.pinned == true) {
+                Spacer(Modifier.width(4.dp))
+                if (!SvgIcon("pin", 11.dp, tint = Muted)) Text("📌", fontSize = 11.sp)
+            }
+            val branch = project.worktreeBranch ?: project.gitBranch
+            if (!branch.isNullOrEmpty() && branch != project.name) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
+                    BranchMark(12.dp, Muted.copy(alpha = 0.55f))
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        branch,
+                        color = Muted.copy(alpha = 0.55f),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        modifier = Modifier.widthIn(max = 104.dp),
+                    )
+                }
             }
         }
-        Spacer(Modifier.weight(1f))
         if (!project.isGroup) {
+            Spacer(Modifier.width(4.dp))
             Box(
                 Modifier
                     .size(28.dp)
@@ -1349,19 +1419,21 @@ private fun SessionLine(
             }
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            session.title.ifEmpty { session.command },
-            color = if (session.status == "exited") Muted else Foreground,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        if (session.pinned) {
-            Spacer(Modifier.width(4.dp))
-            if (!SvgIcon("pin", 11.dp, tint = Muted)) Text("📌", fontSize = 11.sp)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                session.title.ifEmpty { session.command },
+                color = if (session.status == "exited") Muted else Foreground,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (session.pinned) {
+                Spacer(Modifier.width(4.dp))
+                if (!SvgIcon("pin", 11.dp, tint = Muted)) Text("📌", fontSize = 11.sp)
+            }
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(4.dp))
         if (session.notifyWhenDone) {
             if (!SvgIcon("bell", 11.dp, tint = Muted)) Text("🔔", fontSize = 11.sp)
             Spacer(Modifier.width(4.dp))
